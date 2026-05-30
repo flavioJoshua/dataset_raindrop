@@ -11,7 +11,13 @@ Per ogni articolo esporta:
 
 ## Setup
 
-Crea un file `.env` nella stessa directory di `raindrop.py`:
+Copia il template e poi inserisci il token:
+
+```bash
+cp .env.example .env
+```
+
+Crea/aggiorna il file `.env` nella stessa directory di `raindrop.py`:
 
 ```bash
 RAINDROP_TOKEN=il_tuo_token_raindrop
