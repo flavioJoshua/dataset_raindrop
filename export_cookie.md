@@ -52,7 +52,7 @@ funzione di export/download.
 Nome consigliato:
 
 ```text
-www.repubblica.it_cookies.txt
+repubblica.it_cookies.txt
 ```
 
 ## 4. Verifica Il File
@@ -61,19 +61,19 @@ Dal progetto:
 
 ```bash
 cd /home/flavio/Documents/code/dataset
-test -f www.repubblica.it_cookies.txt
+test -f repubblica.it_cookies.txt
 ```
 
 Verifica che lo script riesca a caricarlo senza stampare i valori dei cookie:
 
 ```bash
-python3 -c "import raindrop; raindrop.load_cookie_jar('www.repubblica.it_cookies.txt')"
+python3 -c "import raindrop; raindrop.load_cookie_jar('repubblica.it_cookies.txt')"
 ```
 
 Output atteso:
 
 ```text
-Loaded N cookies from www.repubblica.it_cookies.txt
+Loaded N cookies from repubblica.it_cookies.txt
 ```
 
 Se vedi un errore sul formato, riesporta il file assicurandoti che sia in
@@ -84,13 +84,13 @@ formato Netscape `cookies.txt`.
 Per esportare tutti gli articoli usando i cookie quando scarica le pagine:
 
 ```bash
-python3 raindrop.py --cookies www.repubblica.it_cookies.txt
+python3 raindrop.py --cookies repubblica.it_cookies.txt
 ```
 
 Per forzare il download dal sito originale, invece della cache Raindrop:
 
 ```bash
-python3 raindrop.py --source original --cookies www.repubblica.it_cookies.txt
+python3 raindrop.py --source original --cookies repubblica.it_cookies.txt
 ```
 
 Per estrarre un tag in JSONL:
@@ -98,7 +98,7 @@ Per estrarre un tag in JSONL:
 ```bash
 python3 raindrop.py export-tag ukraine-war \
   --source original \
-  --cookies www.repubblica.it_cookies.txt
+  --cookies repubblica.it_cookies.txt
 ```
 
 Test limitato:
@@ -107,7 +107,7 @@ Test limitato:
 python3 raindrop.py export-tag ukraine-war \
   --limit 1 \
   --source original \
-  --cookies www.repubblica.it_cookies.txt \
+  --cookies repubblica.it_cookies.txt \
   --extract-output estrazione_cookie_test
 ```
 
@@ -140,7 +140,7 @@ file puo potenzialmente usare la tua sessione finche resta valida.
 Per cancellare i cookie esportati:
 
 ```bash
-rm www.repubblica.it_cookies.txt
+rm repubblica.it_cookies.txt
 ```
 
 ## 8. Limiti

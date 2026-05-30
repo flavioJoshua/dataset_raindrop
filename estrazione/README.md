@@ -16,7 +16,7 @@ python3 raindrop.py export-tag ukraine-war
 Con cookie browser per articoli che richiedono login:
 
 ```bash
-python3 raindrop.py export-tag ukraine-war --cookies www.repubblica.it_cookies.txt
+python3 raindrop.py export-tag ukraine-war --cookies repubblica.it_cookies.txt
 ```
 
 Non committare mai file cookie: sono credenziali temporanee.

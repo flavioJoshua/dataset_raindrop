@@ -110,19 +110,19 @@ Esporta invece i cookie dal browser in formato Netscape `cookies.txt`.
 Esempio con il file:
 
 ```text
-www.repubblica.it_cookies.txt
+repubblica.it_cookies.txt
 ```
 
 Uso:
 
 ```bash
-python3 raindrop.py --cookies www.repubblica.it_cookies.txt
+python3 raindrop.py --cookies repubblica.it_cookies.txt
 ```
 
 Oppure per estrazione JSONL per tag:
 
 ```bash
-python3 raindrop.py export-tag ukraine-war --cookies www.repubblica.it_cookies.txt
+python3 raindrop.py export-tag ukraine-war --cookies repubblica.it_cookies.txt
 ```
 
 I cookie sono credenziali temporanee: non committarli e rigenerali quando la sessione scade.
@@ -161,7 +161,7 @@ python3 raindrop.py export-tag ukraine-war --extract-output estrazione_ukraine
 python3 raindrop.py export-tag ukraine-war --chunk-size 400 --chunk-overlap 50
 
 # Con cookie browser per siti autenticati
-python3 raindrop.py export-tag ukraine-war --cookies www.repubblica.it_cookies.txt
+python3 raindrop.py export-tag ukraine-war --cookies repubblica.it_cookies.txt
 ```
 
 Il README dentro `estrazione/` contiene esempi per leggere i dati con pandas,
@@ -233,7 +233,7 @@ python3 raindrop.py export-domain repubblica.it \
   --output raindrop_test_export \
   --extract-output estrazione_cookie \
   --source original \
-  --cookies www.repubblica.it_cookies.txt
+  --cookies repubblica.it_cookies.txt
 ```
 
 ## File JSON
