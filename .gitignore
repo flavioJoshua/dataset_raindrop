@@ -1,0 +1,16 @@
+.env
+cookies.txt
+*cookies.txt
+__pycache__/
+*.pyc
+.venv/
+runs/
+requirements.lock.txt
+raindrop_articles/
+raindrop_test_export/
+estrazione/*.jsonl
+estrazione_cookie/*.jsonl
+estrazione_test/
+estrazione_cookie_test/
+estrazione_domain_test/
+raindrop_domain_test/
