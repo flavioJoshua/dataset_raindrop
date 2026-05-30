@@ -16,6 +16,7 @@ estrazione_test/
 estrazione_cookie_test/
 estrazione_domain_test/
 estrazione_timeout_test/
+estrazione_filename_test/
 raindrop_domain_test/
 
 env

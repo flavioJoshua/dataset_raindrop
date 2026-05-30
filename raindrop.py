@@ -465,12 +465,26 @@ def load_articles_catalog(args: argparse.Namespace, token: str) -> list[dict[str
     return update_articles_cache(args, token)
 
 
-def safe_filename(value: str, *, max_length: int = 180) -> str:
+def safe_filename(value: str, *, max_length: int = 120, max_bytes: int = 180) -> str:
     value = html.unescape(value).strip()
     value = re.sub(r'[<>:"/\\|?*\x00-\x1f]', " ", value)
     value = re.sub(r"\s+", " ", value)
     value = value.strip(" .")
-    return value[:max_length].strip(" .") or "untitled"
+    value = value[:max_length].strip(" .") or "untitled"
+
+    while len(value.encode("utf-8")) > max_bytes and len(value) > 1:
+        value = value[:-1].strip(" .")
+
+    return value or "untitled"
+
+
+def filename_for_article(item: dict[str, Any], article_id: int) -> str:
+    title = str(item.get("title") or item.get("link") or article_id)
+    suffix = f"-{article_id}"
+    base = safe_filename(title, max_bytes=180 - len(suffix.encode("utf-8")))
+    if base.endswith(suffix):
+        return base
+    return f"{base}{suffix}"
 
 
 def unique_filename(base_name: str, used_names: set[str]) -> str:
@@ -492,7 +506,10 @@ def manifest_filename_for_article(manifest: dict[str, Any], article_id: int) -> 
     text_path = manifest_item.get("text_path")
     if not isinstance(text_path, str) or not text_path:
         return None
-    return Path(text_path).stem
+    filename = Path(text_path).stem
+    if len(filename.encode("utf-8")) > 180:
+        return None
+    return filename
 
 
 def decode_bytes(content: bytes, content_type: str | None) -> str:
@@ -1206,8 +1223,7 @@ def build_filenames(articles: list[dict[str, Any]], manifest: dict[str, Any]) ->
             used_names.add(existing_filename)
             continue
 
-        title = str(item.get("title") or item.get("link") or article_id)
-        filenames[article_id] = unique_filename(safe_filename(title), used_names)
+        filenames[article_id] = unique_filename(filename_for_article(item, article_id), used_names)
     return filenames
 
 
