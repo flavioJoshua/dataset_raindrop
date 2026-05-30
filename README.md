@@ -59,13 +59,18 @@ Ogni richiesta HTTP e ogni download articolo vengono registrati in JSONL:
 
 ```text
 logs/YYYY-MM-DD-log.log
+logs/YYYY-MM-DD-log-0002.log
+logs/YYYY-MM-DD-log-0003.log
 ```
 
-Il numero massimo di righe si configura in `.env`:
+Il numero massimo di righe per ogni file si configura in `.env`:
 
 ```bash
 RAINDROP_LOG_MAX_LINES=3000
 ```
+
+Quando il file giornaliero raggiunge questo limite, lo script continua su un
+nuovo file con suffisso progressivo. I log precedenti non vengono troncati.
 
 La directory si configura con:
 
