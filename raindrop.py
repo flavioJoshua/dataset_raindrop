@@ -24,6 +24,7 @@ import hashlib
 import html
 import json
 import os
+import random
 import re
 import sys
 import time
@@ -49,6 +50,8 @@ USER_AGENT = "raindrop-article-exporter/2.0"
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_LOG_DIR = "logs"
 DEFAULT_LOG_MAX_LINES = 3000
+DEFAULT_DOWNLOAD_DELAY_MS = 0
+DEFAULT_DOWNLOAD_JITTER_MS = 0
 
 
 class RaindropError(RuntimeError):
@@ -131,7 +134,7 @@ def get_token() -> str:
     raise RaindropError(f"Missing token. Add {accepted_names} to .env")
 
 
-def env_int(name: str, default: int) -> int:
+def env_int(name: str, default: int, *, minimum: int = 1) -> int:
     value = os.getenv(name)
     if not value:
         return default
@@ -139,8 +142,8 @@ def env_int(name: str, default: int) -> int:
         parsed = int(value)
     except ValueError as exc:
         raise RaindropError(f"{name} must be an integer, got: {value}") from exc
-    if parsed <= 0:
-        raise RaindropError(f"{name} must be greater than zero, got: {value}")
+    if parsed < minimum:
+        raise RaindropError(f"{name} must be >= {minimum}, got: {value}")
     return parsed
 
 
@@ -161,7 +164,7 @@ def prune_log_file(path: Path, max_lines: int) -> None:
 
 def write_log_event(event: dict[str, Any]) -> None:
     path = log_path()
-    max_lines = env_int("RAINDROP_LOG_MAX_LINES", DEFAULT_LOG_MAX_LINES)
+    max_lines = env_int("RAINDROP_LOG_MAX_LINES", DEFAULT_LOG_MAX_LINES, minimum=1)
     event = {
         "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         **event,
@@ -170,6 +173,22 @@ def write_log_event(event: dict[str, Any]) -> None:
         handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True))
         handle.write("\n")
     prune_log_file(path, max_lines)
+
+
+def elapsed_ms_since(started: float) -> int:
+    return int(round((time.perf_counter() - started) * 1000))
+
+
+def bytes_to_kb(size: int) -> int:
+    return int(round(size / 1024))
+
+
+def download_delay_seconds() -> float:
+    delay_ms = env_int("RAINDROP_DOWNLOAD_DELAY_MS", DEFAULT_DOWNLOAD_DELAY_MS, minimum=0)
+    jitter_ms = env_int("RAINDROP_DOWNLOAD_JITTER_MS", DEFAULT_DOWNLOAD_JITTER_MS, minimum=0)
+    if jitter_ms:
+        delay_ms += random.randint(0, jitter_ms)
+    return delay_ms / 1000
 
 
 def load_cookie_jar(path: str | None) -> CookieJar | None:
@@ -282,7 +301,7 @@ def request_content(
             response = opener.open(req, timeout=timeout) if opener else urlopen(req, timeout=timeout)
             with response:
                 content = response.read()
-                elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+                elapsed_ms = elapsed_ms_since(started)
                 write_log_event(
                     {
                         "event": "http_request",
@@ -292,13 +311,13 @@ def request_content(
                         "attempt": attempt + 1,
                         "elapsed_ms": elapsed_ms,
                         "content_type": response.headers.get("Content-Type"),
-                        "bytes": len(content),
+                        "kb": bytes_to_kb(len(content)),
                     }
                 )
                 return content, response.headers.get("Content-Type")
         except HTTPError as exc:
             last_error = exc
-            elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+            elapsed_ms = elapsed_ms_since(started)
             body = exc.read().decode("utf-8", errors="replace")
             write_log_event(
                 {
@@ -322,7 +341,7 @@ def request_content(
             raise RaindropError(f"HTTP {exc.code} for {url}: {body[:500]}") from exc
         except URLError as exc:
             last_error = exc
-            elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+            elapsed_ms = elapsed_ms_since(started)
             write_log_event(
                 {
                     "event": "http_request",
@@ -541,24 +560,60 @@ def content_to_html(content: bytes, content_type: str | None, *, source_url: str
 
 def resolve_cache_url(article_id: int, token: str) -> str:
     opener = build_opener(NoRedirectHandler)
+    url = f"{API_BASE}/raindrop/{article_id}/cache"
     req = Request(
-        f"{API_BASE}/raindrop/{article_id}/cache",
+        url,
         headers={
             "Authorization": f"Bearer {token}",
             "User-Agent": USER_AGENT,
         },
     )
 
+    started = time.perf_counter()
     try:
         opener.open(req, timeout=30)
     except HTTPError as exc:
+        elapsed_ms = elapsed_ms_since(started)
         if exc.code in {301, 302, 303, 307, 308}:
             location = exc.headers.get("Location")
             if location:
+                write_log_event(
+                    {
+                        "event": "cache_resolve",
+                        "article_id": article_id,
+                        "url": url,
+                        "status": exc.code,
+                        "ok": True,
+                        "elapsed_ms": elapsed_ms,
+                    }
+                )
                 return location
         body = exc.read().decode("utf-8", errors="replace")
+        write_log_event(
+            {
+                "event": "cache_resolve",
+                "article_id": article_id,
+                "url": url,
+                "status": exc.code,
+                "ok": False,
+                "elapsed_ms": elapsed_ms,
+                "error": body[:500],
+            }
+        )
         raise RaindropError(f"Cache not available for article {article_id}: HTTP {exc.code} {body[:300]}") from exc
 
+    elapsed_ms = elapsed_ms_since(started)
+    write_log_event(
+        {
+            "event": "cache_resolve",
+            "article_id": article_id,
+            "url": url,
+            "status": None,
+            "ok": False,
+            "elapsed_ms": elapsed_ms,
+            "error": "cache endpoint did not return a redirect",
+        }
+    )
     raise RaindropError(f"Cache endpoint did not return a redirect for article {article_id}")
 
 
@@ -591,6 +646,7 @@ def download_article_content(
 
     for label, url in urls_to_try:
         try:
+            started = time.perf_counter()
             content, content_type = request_content(url, cookie_jar=cookie_jar)
             text = content_to_text(content, content_type)
             html_content = content_to_html(
@@ -600,12 +656,60 @@ def download_article_content(
                 title=str(item.get("title") or item.get("link") or article_id),
             )
             if text:
+                write_log_event(
+                    {
+                        "event": "article_download",
+                        "article_id": article_id,
+                        "title": item.get("title", ""),
+                        "source": label,
+                        "url": url,
+                        "ok": True,
+                        "elapsed_ms": elapsed_ms_since(started),
+                        "text_chars": len(text),
+                        "html_chars": len(html_content),
+                    }
+                )
                 return text, html_content, None
-            errors.append(f"{label}: empty text after conversion")
+            error = "empty text after conversion"
+            write_log_event(
+                {
+                    "event": "article_download",
+                    "article_id": article_id,
+                    "title": item.get("title", ""),
+                    "source": label,
+                    "url": url,
+                    "ok": False,
+                    "elapsed_ms": elapsed_ms_since(started),
+                    "error": error,
+                }
+            )
+            errors.append(f"{label}: {error}")
         except Exception as exc:  # noqa: BLE001 - keep per-item downloads resilient.
+            write_log_event(
+                {
+                    "event": "article_download",
+                    "article_id": article_id,
+                    "title": item.get("title", ""),
+                    "source": label,
+                    "url": url,
+                    "ok": False,
+                    "error_type": type(exc).__name__,
+                    "error": str(exc),
+                }
+            )
             errors.append(f"{label}: {exc}")
 
-    return None, None, " | ".join(errors)
+    error = " | ".join(errors)
+    write_log_event(
+        {
+            "event": "article_download_failed",
+            "article_id": article_id,
+            "title": item.get("title", ""),
+            "ok": False,
+            "error": error,
+        }
+    )
+    return None, None, error
 
 
 def normalize_highlight(highlight: dict[str, Any]) -> dict[str, Any]:
@@ -919,6 +1023,39 @@ def should_skip(
     )
 
 
+def files_complete(html_path: Path, text_path: Path, json_path: Path, *, needs_json: bool) -> bool:
+    if not html_path.exists() or not text_path.exists():
+        return False
+    if needs_json and not json_path.exists():
+        return False
+    return True
+
+
+def manifest_entry(
+    item: dict[str, Any],
+    *,
+    html_path: Path,
+    text_path: Path,
+    json_path: Path,
+    needs_json: bool,
+    article_signature: str,
+    metadata_signature: str,
+    download_error: str = "",
+    resumed_from_existing: bool = False,
+) -> dict[str, Any]:
+    return {
+        "title": item.get("title", ""),
+        "html_path": str(html_path),
+        "text_path": str(text_path),
+        "json_path": str(json_path) if needs_json else "",
+        "article_signature": article_signature,
+        "metadata_signature": metadata_signature,
+        "download_error": download_error,
+        "resumed_from_existing": resumed_from_existing,
+        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+
+
 def export_article(
     item: dict[str, Any],
     highlights: list[dict[str, Any]],
@@ -971,6 +1108,30 @@ def export_article(
     ):
         return "unchanged"
 
+    if not force and files_complete(html_path, text_path, json_path, needs_json=needs_json):
+        manifest_items[str(article_id)] = manifest_entry(
+            item,
+            html_path=html_path,
+            text_path=text_path,
+            json_path=json_path,
+            needs_json=needs_json,
+            article_signature=article_signature,
+            metadata_signature=metadata_signature,
+            resumed_from_existing=True,
+        )
+        write_log_event(
+            {
+                "event": "article_resume_existing",
+                "article_id": article_id,
+                "title": item.get("title", ""),
+                "ok": True,
+                "html_path": str(html_path),
+                "text_path": str(text_path),
+                "json_path": str(json_path) if needs_json else "",
+            }
+        )
+        return "unchanged"
+
     text, html_content, error = download_article_content(
         item,
         token,
@@ -978,16 +1139,16 @@ def export_article(
         cookie_jar=cookie_jar,
     )
     if text is None or html_content is None:
-        manifest_items[str(article_id)] = {
-            "title": item.get("title", ""),
-            "html_path": str(html_path),
-            "text_path": str(text_path),
-            "json_path": str(json_path) if needs_json else "",
-            "article_signature": article_signature,
-            "metadata_signature": metadata_signature,
-            "download_error": error,
-            "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        }
+        manifest_items[str(article_id)] = manifest_entry(
+            item,
+            html_path=html_path,
+            text_path=text_path,
+            json_path=json_path,
+            needs_json=needs_json,
+            article_signature=article_signature,
+            metadata_signature=metadata_signature,
+            download_error=error or "download failed",
+        )
         return f"download failed: {error}"
 
     html_path.write_text(html_content, encoding="utf-8")
@@ -998,16 +1159,15 @@ def export_article(
     elif json_path.exists():
         json_path.unlink()
 
-    manifest_items[str(article_id)] = {
-        "title": item.get("title", ""),
-        "html_path": str(html_path),
-        "text_path": str(text_path),
-        "json_path": str(json_path) if needs_json else "",
-        "article_signature": article_signature,
-        "metadata_signature": metadata_signature,
-        "download_error": "",
-        "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-    }
+    manifest_items[str(article_id)] = manifest_entry(
+        item,
+        html_path=html_path,
+        text_path=text_path,
+        json_path=json_path,
+        needs_json=needs_json,
+        article_signature=article_signature,
+        metadata_signature=metadata_signature,
+    )
     return "written"
 
 
@@ -1090,6 +1250,9 @@ def export_local_articles(
             text_paths[article_id] = text_path
 
         save_manifest(manifest_path, manifest)
+        delay_seconds = download_delay_seconds()
+        if delay_seconds and index < len(articles):
+            time.sleep(delay_seconds)
 
     manifest["summary"] = {
         "articles": len(articles),

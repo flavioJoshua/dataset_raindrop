@@ -5,6 +5,7 @@ __pycache__/
 *.pyc
 .venv/
 runs/
+logs/
 requirements.lock.txt
 raindrop_articles/
 raindrop_test_export/

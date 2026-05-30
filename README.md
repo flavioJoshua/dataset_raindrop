@@ -15,6 +15,10 @@ Crea un file `.env` nella stessa directory di `raindrop.py`:
 
 ```bash
 RAINDROP_TOKEN=il_tuo_token_raindrop
+RAINDROP_LOG_DIR=logs
+RAINDROP_LOG_MAX_LINES=3000
+RAINDROP_DOWNLOAD_DELAY_MS=0
+RAINDROP_DOWNLOAD_JITTER_MS=0
 ```
 
 Lo script carica sempre il file `.env` dalla root del progetto, cioe dalla
@@ -27,6 +31,80 @@ Installa le dipendenze:
 ```bash
 python3 -m pip install -r requirements.txt
 ```
+
+## Log Download
+
+Ogni richiesta HTTP e ogni download articolo vengono registrati in JSONL:
+
+```text
+logs/YYYY-MM-DD-log.log
+```
+
+Il numero massimo di righe si configura in `.env`:
+
+```bash
+RAINDROP_LOG_MAX_LINES=3000
+```
+
+La directory si configura con:
+
+```bash
+RAINDROP_LOG_DIR=logs
+```
+
+Esempio di evento:
+
+```json
+{"event":"http_request","url":"https://example.com","status":200,"ok":true,"elapsed_ms":421,"kb":139}
+```
+
+Esempio per leggere il log con pandas:
+
+```python
+import pandas as pd
+
+df = pd.read_json("logs/2026-05-30-log.log", lines=True)
+errors = df[df["ok"] == False]
+print(errors[["ts", "event", "url", "status", "error"]].tail())
+```
+
+Il log non salva header, token o cookie. Salva URL, tempi, status HTTP, KB
+scaricati e messaggi di errore utili a distinguere problemi di rete, paywall,
+redirect/cache e parsing del contenuto.
+
+## Resume E Download Lenti
+
+Il download e incrementale. Se il processo si ferma a meta, rilancia lo stesso
+comando:
+
+```bash
+python3 raindrop.py export-domain repubblica.it
+```
+
+Lo script:
+
+- legge `manifest.json`
+- salta gli articoli gia completati
+- se trova file `.html`, `.txt` e l'eventuale `.json` gia presenti ma non ancora
+  registrati nel manifest, li adotta e li marca come completati
+- riprende dai successivi
+
+Per riscrivere tutto:
+
+```bash
+python3 raindrop.py export-domain repubblica.it --force
+```
+
+Se il sito rallenta dopo molti download, puo essere throttling lato server.
+Lo script crea gia una nuova richiesta HTTP per ogni articolo. Puoi ridurre la
+pressione aggiungendo una pausa tra articoli in `.env`:
+
+```bash
+RAINDROP_DOWNLOAD_DELAY_MS=1500
+RAINDROP_DOWNLOAD_JITTER_MS=1000
+```
+
+Con questi valori aspetta circa 1.5-2.5 secondi tra un articolo e il successivo.
 
 ## Uso Base
 
