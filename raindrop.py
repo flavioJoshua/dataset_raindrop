@@ -52,6 +52,8 @@ DEFAULT_LOG_DIR = "logs"
 DEFAULT_LOG_MAX_LINES = 3000
 DEFAULT_DOWNLOAD_DELAY_MS = 0
 DEFAULT_DOWNLOAD_JITTER_MS = 0
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 25
+DEFAULT_REQUEST_RETRIES = 2
 
 
 class RaindropError(RuntimeError):
@@ -191,6 +193,14 @@ def download_delay_seconds() -> float:
     return delay_ms / 1000
 
 
+def request_timeout_seconds() -> int:
+    return env_int("RAINDROP_REQUEST_TIMEOUT_SECONDS", DEFAULT_REQUEST_TIMEOUT_SECONDS, minimum=1)
+
+
+def request_retries() -> int:
+    return env_int("RAINDROP_REQUEST_RETRIES", DEFAULT_REQUEST_RETRIES, minimum=1)
+
+
 def load_cookie_jar(path: str | None) -> CookieJar | None:
     if not path:
         return None
@@ -260,7 +270,7 @@ def request_json(
     token: str,
     *,
     params: dict[str, Any] | None = None,
-    retries: int = 3,
+    retries: int | None = None,
 ) -> dict[str, Any]:
     content, _content_type = request_content(url, token=token, params=params, retries=retries)
 
@@ -282,11 +292,15 @@ def request_content(
     token: str | None = None,
     cookie_jar: CookieJar | None = None,
     params: dict[str, Any] | None = None,
-    retries: int = 3,
-    timeout: int = 90,
+    retries: int | None = None,
+    timeout: int | None = None,
 ) -> tuple[bytes, str | None]:
     if params:
         url = f"{url}?{urlencode(params)}"
+    if retries is None:
+        retries = request_retries()
+    if timeout is None:
+        timeout = request_timeout_seconds()
 
     headers = {"User-Agent": USER_AGENT}
     if token:
@@ -571,7 +585,7 @@ def resolve_cache_url(article_id: int, token: str) -> str:
 
     started = time.perf_counter()
     try:
-        opener.open(req, timeout=30)
+        opener.open(req, timeout=request_timeout_seconds())
     except HTTPError as exc:
         elapsed_ms = elapsed_ms_since(started)
         if exc.code in {301, 302, 303, 307, 308}:
@@ -644,7 +658,15 @@ def download_article_content(
         else:
             errors.append("missing original link")
 
+    deduped_urls: list[tuple[str, str]] = []
+    seen_urls: set[str] = set()
     for label, url in urls_to_try:
+        if url in seen_urls:
+            continue
+        seen_urls.add(url)
+        deduped_urls.append((label, url))
+
+    for label, url in deduped_urls:
         try:
             started = time.perf_counter()
             content, content_type = request_content(url, cookie_jar=cookie_jar)

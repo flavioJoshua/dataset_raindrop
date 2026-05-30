@@ -19,6 +19,8 @@ RAINDROP_LOG_DIR=logs
 RAINDROP_LOG_MAX_LINES=3000
 RAINDROP_DOWNLOAD_DELAY_MS=0
 RAINDROP_DOWNLOAD_JITTER_MS=0
+RAINDROP_REQUEST_TIMEOUT_SECONDS=25
+RAINDROP_REQUEST_RETRIES=2
 ```
 
 Lo script carica sempre il file `.env` dalla root del progetto, cioe dalla
@@ -124,6 +126,18 @@ RAINDROP_DOWNLOAD_JITTER_MS=1000
 ```
 
 Con questi valori aspetta circa 1.5-2.5 secondi tra un articolo e il successivo.
+
+Se invece un singolo dominio si blocca su handshake, TLS o server lento, regola
+timeout e retry:
+
+```bash
+RAINDROP_REQUEST_TIMEOUT_SECONDS=25
+RAINDROP_REQUEST_RETRIES=2
+```
+
+Così un articolo problematico non blocca il processo per molti minuti. Se cache
+e originale puntano allo stesso URL, lo script ora prova quell'URL una sola
+volta.
 
 ## Uso Base
 

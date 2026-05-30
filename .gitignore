@@ -15,6 +15,7 @@ estrazione_cookie/*.jsonl
 estrazione_test/
 estrazione_cookie_test/
 estrazione_domain_test/
+estrazione_timeout_test/
 raindrop_domain_test/
 
 env
