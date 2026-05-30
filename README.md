@@ -17,9 +17,16 @@ Crea un file `.env` nella stessa directory di `raindrop.py`:
 RAINDROP_TOKEN=il_tuo_token_raindrop
 ```
 
+Lo script carica sempre il file `.env` dalla root del progetto, cioe dalla
+directory dove si trova `raindrop.py`.
+
 Lo script legge anche `RAINDROP_ACCESS_TOKEN`, se preferisci usare quel nome.
 
-Non servono librerie esterne: usa solo la standard library di Python.
+Installa le dipendenze:
+
+```bash
+python3 -m pip install -r requirements.txt
+```
 
 ## Uso Base
 

@@ -27,7 +27,7 @@ import os
 import re
 import sys
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from html.parser import HTMLParser
 from http.cookiejar import CookieJar, MozillaCookieJar
 from pathlib import Path
@@ -47,6 +47,8 @@ DEFAULT_DOMAIN_EXTRACTION_DIR = "estrazione_cookie"
 TOKEN_ENV_NAMES = ("RAINDROP_TOKEN", "RAINDROP_ACCESS_TOKEN")
 USER_AGENT = "raindrop-article-exporter/2.0"
 PROJECT_ROOT = Path(__file__).resolve().parent
+DEFAULT_LOG_DIR = "logs"
+DEFAULT_LOG_MAX_LINES = 3000
 
 
 class RaindropError(RuntimeError):
@@ -127,6 +129,47 @@ def get_token() -> str:
 
     accepted_names = " or ".join(TOKEN_ENV_NAMES)
     raise RaindropError(f"Missing token. Add {accepted_names} to .env")
+
+
+def env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if not value:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise RaindropError(f"{name} must be an integer, got: {value}") from exc
+    if parsed <= 0:
+        raise RaindropError(f"{name} must be greater than zero, got: {value}")
+    return parsed
+
+
+def log_path() -> Path:
+    log_dir = Path(os.getenv("RAINDROP_LOG_DIR", DEFAULT_LOG_DIR))
+    if not log_dir.is_absolute():
+        log_dir = PROJECT_ROOT / log_dir
+    log_dir.mkdir(parents=True, exist_ok=True)
+    return log_dir / f"{date.today().isoformat()}-log.log"
+
+
+def prune_log_file(path: Path, max_lines: int) -> None:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if len(lines) <= max_lines:
+        return
+    path.write_text("\n".join(lines[-max_lines:]) + "\n", encoding="utf-8")
+
+
+def write_log_event(event: dict[str, Any]) -> None:
+    path = log_path()
+    max_lines = env_int("RAINDROP_LOG_MAX_LINES", DEFAULT_LOG_MAX_LINES)
+    event = {
+        "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        **event,
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False, sort_keys=True))
+        handle.write("\n")
+    prune_log_file(path, max_lines)
 
 
 def load_cookie_jar(path: str | None) -> CookieJar | None:
@@ -234,12 +277,41 @@ def request_content(
     last_error: Exception | None = None
     for attempt in range(retries):
         req = Request(url, headers=headers)
+        started = time.perf_counter()
         try:
             response = opener.open(req, timeout=timeout) if opener else urlopen(req, timeout=timeout)
             with response:
-                return response.read(), response.headers.get("Content-Type")
+                content = response.read()
+                elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+                write_log_event(
+                    {
+                        "event": "http_request",
+                        "url": url,
+                        "status": getattr(response, "status", None),
+                        "ok": True,
+                        "attempt": attempt + 1,
+                        "elapsed_ms": elapsed_ms,
+                        "content_type": response.headers.get("Content-Type"),
+                        "bytes": len(content),
+                    }
+                )
+                return content, response.headers.get("Content-Type")
         except HTTPError as exc:
             last_error = exc
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+            body = exc.read().decode("utf-8", errors="replace")
+            write_log_event(
+                {
+                    "event": "http_request",
+                    "url": url,
+                    "status": exc.code,
+                    "ok": False,
+                    "attempt": attempt + 1,
+                    "elapsed_ms": elapsed_ms,
+                    "error_type": "HTTPError",
+                    "error": body[:500],
+                }
+            )
             if exc.code == 429:
                 wait_seconds = int(exc.headers.get("Retry-After", "5"))
                 time.sleep(wait_seconds)
@@ -247,10 +319,22 @@ def request_content(
             if 500 <= exc.code < 600 and attempt < retries - 1:
                 time.sleep(2**attempt)
                 continue
-            body = exc.read().decode("utf-8", errors="replace")
             raise RaindropError(f"HTTP {exc.code} for {url}: {body[:500]}") from exc
         except URLError as exc:
             last_error = exc
+            elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+            write_log_event(
+                {
+                    "event": "http_request",
+                    "url": url,
+                    "status": None,
+                    "ok": False,
+                    "attempt": attempt + 1,
+                    "elapsed_ms": elapsed_ms,
+                    "error_type": "URLError",
+                    "error": str(exc),
+                }
+            )
             if attempt < retries - 1:
                 time.sleep(2**attempt)
                 continue
