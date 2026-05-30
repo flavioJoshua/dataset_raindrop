@@ -24,7 +24,6 @@ import json
 import os
 import sys
 import time
-from datetime import date
 from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Any
@@ -38,7 +37,6 @@ from utility import (
     PROJECT_ROOT,
     RaindropError,
     bytes_to_kb,
-    chunk_text,
     content_to_html,
     content_to_text,
     download_delay_seconds,
@@ -47,21 +45,17 @@ from utility import (
     load_manifest,
     request_retries,
     request_timeout_seconds,
-    require_existing_dir,
     safe_filename,
     save_manifest,
     stable_hash,
     unique_filename,
-    write_jsonl,
     write_log_event,
 )
 
 
 API_BASE = "https://api.raindrop.io/rest/v1"
 DEFAULT_OUTPUT_DIR = "raindrop_articles"
-DEFAULT_EXTRACTION_DIR = "estrazione"
 DEFAULT_DOMAIN_OUTPUT_DIR = "raindrop_test_export"
-DEFAULT_DOMAIN_EXTRACTION_DIR = "estrazione_cookie"
 TOKEN_ENV_NAMES = ("RAINDROP_TOKEN", "RAINDROP_ACCESS_TOKEN")
 USER_AGENT = "raindrop-article-exporter/2.0"
 
@@ -91,14 +85,6 @@ def output_dir_for_args(args: argparse.Namespace) -> Path:
     if args.command == "export-domain":
         return Path(DEFAULT_DOMAIN_OUTPUT_DIR)
     return Path(DEFAULT_OUTPUT_DIR)
-
-
-def extraction_dir_for_args(args: argparse.Namespace) -> Path:
-    if args.extract_output:
-        return Path(args.extract_output)
-    if args.command == "export-domain":
-        return Path(DEFAULT_DOMAIN_EXTRACTION_DIR)
-    return Path(DEFAULT_EXTRACTION_DIR)
 
 
 def cookie_path_for_args(args: argparse.Namespace) -> str:
@@ -554,45 +540,6 @@ def metadata_for_article(item: dict[str, Any], highlights: list[dict[str, Any]])
     }
 
 
-def article_record(item: dict[str, Any], highlights: list[dict[str, Any]], *, tag: str, text: str) -> dict[str, Any]:
-    return {
-        "id": item.get("_id"),
-        "title": item.get("title", ""),
-        "url": item.get("link", ""),
-        "tag": tag,
-        "tags": item.get("tags") or [],
-        "created": item.get("created", ""),
-        "lastUpdate": item.get("lastUpdate", ""),
-        "domain": item.get("domain", ""),
-        "excerpt": item.get("excerpt", ""),
-        "note": item.get("note", ""),
-        "text": text,
-        "highlights": highlights,
-    }
-
-
-def chunk_records(article: dict[str, Any], *, chunk_size: int, overlap: int) -> list[dict[str, Any]]:
-    chunks = chunk_text(str(article.get("text") or ""), chunk_size=chunk_size, overlap=overlap)
-    article_id = article.get("id")
-    records: list[dict[str, Any]] = []
-    for index, text in enumerate(chunks):
-        records.append(
-            {
-                "article_id": article_id,
-                "chunk_id": f"{article_id}-{index:04d}",
-                "chunk_index": index,
-                "title": article.get("title", ""),
-                "url": article.get("url", ""),
-                "tag": article.get("tag", ""),
-                "tags": article.get("tags") or [],
-                "created": article.get("created", ""),
-                "text": text,
-                "highlights": article.get("highlights") or [],
-            }
-        )
-    return records
-
-
 def tag_matches(item: dict[str, Any], tag: str) -> bool:
     target = tag.casefold()
     return any(str(value).casefold() == target for value in item.get("tags") or [])
@@ -615,123 +562,6 @@ def article_highlights(item: dict[str, Any]) -> list[dict[str, Any]]:
     if not isinstance(highlights, list):
         return []
     return [normalize_highlight(row) for row in highlights if isinstance(row, dict)]
-
-
-def extraction_base_name(label: str) -> str:
-    return f"{date.today().isoformat()}_{safe_filename(label, max_length=80)}"
-
-
-def write_extraction_readme(path: Path) -> None:
-    readme = """# Estrazione JSONL
-
-Questa directory contiene esportazioni pronte per analisi dati, RAG e preparazione dataset.
-
-## File
-
-- `*_articles.jsonl`: una riga JSON per articolo completo.
-- `*_chunks.jsonl`: una riga JSON per chunk di testo, piu adatto a RAG ed embedding.
-
-## Pandas
-
-```python
-import pandas as pd
-
-df = pd.read_json("2026-05-30_tag_articles.jsonl", lines=True)
-print(df[["id", "title", "url", "tags"]].head())
-```
-
-## Hugging Face Datasets
-
-```python
-from datasets import load_dataset
-
-dataset = load_dataset("json", data_files="2026-05-30_tag_chunks.jsonl", split="train")
-print(dataset[0])
-```
-
-## RAG Semplice
-
-```python
-import faiss
-import numpy as np
-from datasets import load_dataset
-from sentence_transformers import SentenceTransformer
-
-data = load_dataset("json", data_files="2026-05-30_tag_chunks.jsonl", split="train")
-model = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-
-embeddings = model.encode(data["text"], normalize_embeddings=True, show_progress_bar=True)
-index = faiss.IndexFlatIP(embeddings.shape[1])
-index.add(np.asarray(embeddings, dtype="float32"))
-
-query = "Quali sono i punti principali?"
-query_embedding = model.encode([query], normalize_embeddings=True)
-scores, ids = index.search(np.asarray(query_embedding, dtype="float32"), k=5)
-
-for score, idx in zip(scores[0], ids[0]):
-    row = data[int(idx)]
-    print(score, row["title"], row["url"])
-    print(row["text"][:500])
-```
-
-## Training PEFT + Transformers
-
-Questo e solo un esempio minimale. Per un training reale serve definire bene il task,
-validare la qualita dei testi e creare split train/validation.
-
-```python
-from datasets import load_dataset
-from peft import LoraConfig, get_peft_model
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    DataCollatorForLanguageModeling,
-    Trainer,
-    TrainingArguments,
-)
-
-model_name = "Qwen/Qwen2.5-0.5B"
-dataset = load_dataset("json", data_files="2026-05-30_tag_chunks.jsonl", split="train")
-
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-if tokenizer.pad_token is None:
-    tokenizer.pad_token = tokenizer.eos_token
-
-def tokenize(batch):
-    return tokenizer(batch["text"], truncation=True, max_length=1024)
-
-tokenized = dataset.map(tokenize, batched=True, remove_columns=dataset.column_names)
-model = AutoModelForCausalLM.from_pretrained(model_name)
-
-peft_config = LoraConfig(
-    r=8,
-    lora_alpha=16,
-    lora_dropout=0.05,
-    task_type="CAUSAL_LM",
-)
-model = get_peft_model(model, peft_config)
-
-args = TrainingArguments(
-    output_dir="runs/raindrop-peft",
-    per_device_train_batch_size=1,
-    gradient_accumulation_steps=8,
-    learning_rate=2e-4,
-    num_train_epochs=1,
-    logging_steps=10,
-    save_steps=200,
-)
-
-trainer = Trainer(
-    model=model,
-    args=args,
-    train_dataset=tokenized,
-    data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
-)
-trainer.train()
-model.save_pretrained("runs/raindrop-peft/final")
-```
-"""
-    path.write_text(readme, encoding="utf-8")
 
 
 def should_skip(
@@ -1010,48 +840,6 @@ def export_local_articles(
     return text_paths, counts
 
 
-def write_dataset_from_text_paths(
-    articles: list[dict[str, Any]],
-    text_paths: dict[int, Path],
-    args: argparse.Namespace,
-    *,
-    label: str,
-) -> None:
-    extraction_dir = extraction_dir_for_args(args)
-    extraction_dir.mkdir(parents=True, exist_ok=True)
-    write_extraction_readme(extraction_dir / "README.md")
-
-    article_records: list[dict[str, Any]] = []
-    for item in articles:
-        article_id = item.get("_id")
-        if not isinstance(article_id, int) or article_id not in text_paths:
-            continue
-        text = text_paths[article_id].read_text(encoding="utf-8")
-        article_records.append(
-            article_record(
-                item,
-                article_highlights(item),
-                tag=label,
-                text=text,
-            )
-        )
-
-    base_name = extraction_base_name(label)
-    articles_path = extraction_dir / f"{base_name}_articles.jsonl"
-    chunks_path = extraction_dir / f"{base_name}_chunks.jsonl"
-    chunks = [
-        chunk
-        for article in article_records
-        for chunk in chunk_records(article, chunk_size=args.chunk_size, overlap=args.chunk_overlap)
-    ]
-
-    write_jsonl(articles_path, article_records)
-    write_jsonl(chunks_path, chunks)
-
-    print(f"Wrote {len(article_records)} article rows to {articles_path}")
-    print(f"Wrote {len(chunks)} chunk rows to {chunks_path}")
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Export Raindrop.io articles to local HTML, TXT, and tag/highlight JSON files."
@@ -1106,26 +894,6 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
-        "--extract-output",
-        default="",
-        help=(
-            f"Output directory for JSONL files. Default: {DEFAULT_EXTRACTION_DIR}; "
-            f"for export-domain: {DEFAULT_DOMAIN_EXTRACTION_DIR}"
-        ),
-    )
-    parser.add_argument(
-        "--chunk-size",
-        type=int,
-        default=700,
-        help="Approximate chunk size in words for export-tag chunks JSONL. Default: 700",
-    )
-    parser.add_argument(
-        "--chunk-overlap",
-        type=int,
-        default=100,
-        help="Chunk overlap in words for export-tag chunks JSONL. Default: 100",
-    )
-    parser.add_argument(
         "--limit",
         type=int,
         default=0,
@@ -1150,66 +918,19 @@ def export_all(args: argparse.Namespace, token: str, cookie_jar: CookieJar | Non
     return 0
 
 
-def export_tag_dataset(args: argparse.Namespace, token: str, cookie_jar: CookieJar | None) -> int:
+def export_tag(args: argparse.Namespace, token: str, cookie_jar: CookieJar | None) -> int:
     if not args.selector:
         raise RaindropError("Missing tag. Usage: python3 raindrop.py export-tag <tag>")
 
     tag = args.selector
-    extraction_dir = extraction_dir_for_args(args)
-    extraction_dir.mkdir(parents=True, exist_ok=True)
-    write_extraction_readme(extraction_dir / "README.md")
-
     all_articles = load_articles_catalog(args, token)
     articles = [item for item in all_articles if tag_matches(item, tag)]
 
     if args.limit and args.limit > 0:
         articles = articles[: args.limit]
 
-    article_records: list[dict[str, Any]] = []
-    failed = 0
     print(f"Found {len(articles)} articles for tag '{tag}'")
-
-    for index, item in enumerate(articles, 1):
-        article_id = item.get("_id")
-        title = item.get("title") or item.get("link") or article_id
-        print(f"[{index}/{len(articles)}] {title}")
-        text, _html_content, error = download_article_content(
-            item,
-            token,
-            source=source_for_args(args),
-            cookie_jar=cookie_jar,
-        )
-        if text is None:
-            failed += 1
-            print(f"  skipped: {error}", file=sys.stderr)
-            continue
-        article_records.append(
-            article_record(
-                item,
-                article_highlights(item),
-                tag=tag,
-                text=text,
-            )
-        )
-
-    base_name = extraction_base_name(tag)
-    articles_path = extraction_dir / f"{base_name}_articles.jsonl"
-    chunks_path = extraction_dir / f"{base_name}_chunks.jsonl"
-    chunks = [
-        chunk
-        for article in article_records
-        for chunk in chunk_records(article, chunk_size=args.chunk_size, overlap=args.chunk_overlap)
-    ]
-
-    write_jsonl(articles_path, article_records)
-    write_jsonl(chunks_path, chunks)
-
-    print(f"Wrote {len(article_records)} article rows to {articles_path}")
-    print(f"Wrote {len(chunks)} chunk rows to {chunks_path}")
-    print(f"Wrote extraction README to {extraction_dir / 'README.md'}")
-    if failed:
-        print(f"Skipped {failed} articles due to download errors", file=sys.stderr)
-
+    export_local_articles(articles, args, token, cookie_jar)
     return 0
 
 
@@ -1219,11 +940,7 @@ def export_domain(args: argparse.Namespace, token: str, cookie_jar: CookieJar | 
 
     domain = args.selector
     output_dir = output_dir_for_args(args)
-    extraction_dir = extraction_dir_for_args(args)
-    require_existing_dir(output_dir, label="Local export directory")
-    require_existing_dir(extraction_dir, label="Extraction directory")
     print(f"Local export directory: {output_dir}")
-    print(f"Extraction directory: {extraction_dir}")
 
     all_articles = load_articles_catalog(args, token)
     articles = [item for item in all_articles if domain_matches(item, domain)]
@@ -1232,8 +949,7 @@ def export_domain(args: argparse.Namespace, token: str, cookie_jar: CookieJar | 
         articles = articles[: args.limit]
 
     print(f"Found {len(articles)} articles for domain '{domain}'")
-    text_paths, _counts = export_local_articles(articles, args, token, cookie_jar)
-    write_dataset_from_text_paths(articles, text_paths, args, label=domain)
+    export_local_articles(articles, args, token, cookie_jar)
     return 0
 
 
@@ -1251,7 +967,7 @@ def main() -> int:
         return 0
 
     if args.command == "export-tag":
-        return export_tag_dataset(args, token, cookie_jar)
+        return export_tag(args, token, cookie_jar)
 
     if args.command == "export-domain":
         return export_domain(args, token, cookie_jar)

@@ -1,25 +1,13 @@
 # Estrazione JSONL
 
-Questa directory contiene esportazioni pronte per analisi dati, RAG e preparazione dataset.
+Questa directory contiene dataset derivati da `raindrop_articles/`.
+`extraction.py` non scarica dati da Raindrop.io: legge il catalogo locale,
+il manifest e i file `.txt` prodotti da `raindrop.py`.
 
 ## File
 
 - `*_articles.jsonl`: una riga JSON per articolo completo.
 - `*_chunks.jsonl`: una riga JSON per chunk di testo, piu adatto a RAG ed embedding.
-
-## Creare Una Estrazione
-
-```bash
-python3 raindrop.py export-tag ukraine-war
-```
-
-Con cookie browser per articoli che richiedono login:
-
-```bash
-python3 raindrop.py export-tag ukraine-war --cookies repubblica.it_cookies.txt
-```
-
-Non committare mai file cookie: sono credenziali temporanee.
 
 ## Pandas
 

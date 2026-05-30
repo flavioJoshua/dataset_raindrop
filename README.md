@@ -242,7 +242,7 @@ Uso:
 python3 raindrop.py --cookies repubblica.it_cookies.txt
 ```
 
-Oppure per estrazione JSONL per tag:
+Oppure per scaricare/cache gli articoli di un tag che richiedono cookie:
 
 ```bash
 python3 raindrop.py export-tag ukraine-war --cookies repubblica.it_cookies.txt
@@ -250,22 +250,41 @@ python3 raindrop.py export-tag ukraine-war --cookies repubblica.it_cookies.txt
 
 I cookie sono credenziali temporanee: non committarli e rigenerali quando la sessione scade.
 
-## Estrazione Per Tag In JSONL
+## Estrazione Dataset JSONL
 
-Per creare file pronti per pandas, Hugging Face Datasets, RAG o training:
+La creazione di dataset e file AI/RAG si fa con `extraction.py`.
+Questo script non scarica nulla da Raindrop.io: legge solo il catalogo,
+il manifest e i `.txt` gia presenti in `raindrop_articles/`.
+
+Prima scarica o aggiorna l'archivio locale:
 
 ```bash
 python3 raindrop.py export-tag ukraine-war
 ```
 
+Poi crea i JSONL derivati:
+
+```bash
+python3 extraction.py tag ukraine-war
+```
+
 Output:
 
 ```text
+raindrop_articles/
+  files/
+  text/
+  json/
+  manifest.json
+
 estrazione/
   README.md
   2026-05-30_ukraine-war_articles.jsonl
   2026-05-30_ukraine-war_chunks.jsonl
 ```
+
+`raindrop_articles/` conserva HTML, TXT, metadata e manifest per resume e
+tracciabilita.
 
 `*_articles.jsonl` contiene una riga per articolo completo.
 
@@ -274,26 +293,37 @@ estrazione/
 Esempi:
 
 ```bash
-# Solo primi 10 articoli del tag
-python3 raindrop.py export-tag ukraine-war --limit 10
+# Dataset su tutti gli articoli locali
+python3 extraction.py all
 
-# Directory diversa
-python3 raindrop.py export-tag ukraine-war --extract-output estrazione_ukraine
+# Dataset su un tag
+python3 extraction.py tag ukraine-war
+
+# Dataset su un dominio
+python3 extraction.py domain repubblica.it
+
+# Solo primi 10 articoli selezionati
+python3 extraction.py tag ukraine-war --limit 10
+
+# Directory dataset diversa
+python3 extraction.py tag ukraine-war --output estrazione_ukraine
 
 # Chunk piu piccoli
-python3 raindrop.py export-tag ukraine-war --chunk-size 400 --chunk-overlap 50
+python3 extraction.py tag ukraine-war --chunk-size 400 --chunk-overlap 50
 
-# Con cookie browser per siti autenticati
-python3 raindrop.py export-tag ukraine-war --cookies repubblica.it_cookies.txt
+# Leggere da una export directory diversa
+python3 extraction.py domain repubblica.it \
+  --export-dir raindrop_test_export \
+  --output estrazione_cookie
 ```
 
 Il README dentro `estrazione/` contiene esempi per leggere i dati con pandas,
-Hugging Face Datasets, un RAG minimale e un training di esempio con PEFT.
+Hugging Face Datasets e un RAG minimale.
 
-## Estrazione Per Dominio
+## Export Per Dominio
 
-Per esportare tutti gli articoli di un dominio, leggendo dal catalogo locale
-`raindrop_articles/articles.json`:
+Per scaricare/cache tutti gli articoli di un dominio, leggendo dal catalogo
+locale `raindrop_articles/articles.json`:
 
 ```bash
 python3 raindrop.py export-domain repubblica.it
@@ -303,13 +333,8 @@ Con questo comando breve lo script usa le convenzioni:
 
 ```text
 Local export directory: raindrop_test_export
-Extraction directory: estrazione_cookie
 Cookies file: repubblica.it_cookies.txt
 ```
-
-Le directory base devono gia esistere. Se `raindrop_test_export` o
-`estrazione_cookie` non esistono, lo script va in errore invece di crearle
-implicitamente.
 
 Il nome cookie predefinito e:
 
@@ -328,12 +353,11 @@ Esempio esplicito, utile se vuoi cambiare percorsi o usare un nome cookie divers
 ```bash
 python3 raindrop.py export-domain repubblica.it \
   --output raindrop_test_export \
-  --extract-output estrazione_cookie \
   --source original \
   --cookies repubblica.it_cookies.txt
 ```
 
-Questo crea contemporaneamente:
+Questo crea/aggiorna:
 
 ```text
 raindrop_test_export/
@@ -341,11 +365,14 @@ raindrop_test_export/
   text/
   json/
   manifest.json
+```
 
-estrazione_cookie/
-  README.md
-  2026-05-30_repubblica.it_articles.jsonl
-  2026-05-30_repubblica.it_chunks.jsonl
+Per creare il dataset JSONL da questa export directory:
+
+```bash
+python3 extraction.py domain repubblica.it \
+  --export-dir raindrop_test_export \
+  --output estrazione_cookie
 ```
 
 Test limitato:
@@ -354,7 +381,6 @@ Test limitato:
 python3 raindrop.py export-domain repubblica.it \
   --limit 1 \
   --output raindrop_test_export \
-  --extract-output estrazione_cookie \
   --source original \
   --cookies repubblica.it_cookies.txt
 ```

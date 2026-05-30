@@ -93,12 +93,18 @@ Per forzare il download dal sito originale, invece della cache Raindrop:
 python3 raindrop.py --source original --cookies repubblica.it_cookies.txt
 ```
 
-Per estrarre un tag in JSONL:
+Per scaricare/cache gli articoli di un tag usando i cookie:
 
 ```bash
 python3 raindrop.py export-tag ukraine-war \
   --source original \
   --cookies repubblica.it_cookies.txt
+```
+
+Poi crea il dataset JSONL dai file locali:
+
+```bash
+python3 extraction.py tag ukraine-war --output estrazione_cookie_test
 ```
 
 Test limitato:
@@ -107,8 +113,11 @@ Test limitato:
 python3 raindrop.py export-tag ukraine-war \
   --limit 1 \
   --source original \
-  --cookies repubblica.it_cookies.txt \
-  --extract-output estrazione_cookie_test
+  --cookies repubblica.it_cookies.txt
+
+python3 extraction.py tag ukraine-war \
+  --limit 1 \
+  --output estrazione_cookie_test
 ```
 
 ## 6. Quando Rigenerare I Cookie
