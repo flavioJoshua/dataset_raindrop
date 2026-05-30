@@ -26,11 +26,30 @@ directory dove si trova `raindrop.py`.
 
 Lo script legge anche `RAINDROP_ACCESS_TOKEN`, se preferisci usare quel nome.
 
-Installa le dipendenze:
+Installa l'ambiente minimo dedicato:
 
 ```bash
-python3 -m pip install -r requirements.txt
+python3 -m venv env/datasetenv
+source env/datasetenv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements-export.txt
 ```
+
+Poi esegui lo script con:
+
+```bash
+python raindrop.py --help
+```
+
+Per pandas, Hugging Face Datasets, RAG e training installa anche lo stack
+completo:
+
+```bash
+python -m pip install -r requirements.txt
+```
+
+Vedi [environment.md](environment.md) per creare, aggiornare o cancellare
+l'environment.
 
 ## Log Download
 

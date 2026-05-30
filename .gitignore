@@ -4,6 +4,7 @@ cookies.txt
 __pycache__/
 *.pyc
 .venv/
+env/
 runs/
 logs/
 requirements.lock.txt
@@ -15,3 +16,5 @@ estrazione_test/
 estrazione_cookie_test/
 estrazione_domain_test/
 raindrop_domain_test/
+
+env

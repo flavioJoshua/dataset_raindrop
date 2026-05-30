@@ -1,36 +1,75 @@
 # Gestione Environment
 
-Procedure consigliate per creare, aggiornare e cancellare ambienti Python per
-analisi dati, RAG e training.
+Usiamo un virtual environment dedicato al progetto in:
 
-## Creare Con venv
+```text
+env/datasetenv
+```
+
+In questo modo le dipendenze restano separate da `base`, Conda e dagli altri
+progetti.
+
+## Creare L'Environment Minimo
+
+Questo basta per usare `raindrop.py` e scaricare/esportare articoli.
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv env/datasetenv
+source env/datasetenv/bin/activate
 python -m pip install --upgrade pip
+python -m pip install -r requirements-export.txt
+```
+
+Verifica:
+
+```bash
+python -c "import dotenv; print('dotenv ok')"
+python raindrop.py --help
+```
+
+## Usare L'Environment
+
+```bash
+source env/datasetenv/bin/activate
+python raindrop.py export-domain repubblica.it
+```
+
+Oppure senza attivarlo:
+
+```bash
+env/datasetenv/bin/python raindrop.py export-domain repubblica.it
+```
+
+## Installare Lo Stack Dataset/RAG/Training
+
+`requirements.txt` contiene pandas, datasets, transformers, accelerate, PEFT,
+torch, sentence-transformers e FAISS. Installalo solo quando serve lavorare su
+dataset, RAG o training.
+
+```bash
+source env/datasetenv/bin/activate
 python -m pip install -r requirements.txt
 ```
 
 Verifica:
 
 ```bash
-python -c "import pandas, datasets, transformers, peft, accelerate; print('ok')"
-```
-
-## Usare L'Environment
-
-```bash
-source .venv/bin/activate
-python3 raindrop.py export-tag ukraine-war --limit 10
+python -c "import pandas, datasets, transformers, peft, accelerate; print('ml stack ok')"
 ```
 
 ## Aggiornare Dipendenze
 
-Aggiorna usando i vincoli in `requirements.txt`:
+Minimo export:
 
 ```bash
-source .venv/bin/activate
+source env/datasetenv/bin/activate
+python -m pip install --upgrade -r requirements-export.txt
+```
+
+Stack completo:
+
+```bash
+source env/datasetenv/bin/activate
 python -m pip install --upgrade -r requirements.txt
 ```
 
@@ -57,30 +96,17 @@ deactivate
 Poi elimina la directory:
 
 ```bash
-rm -rf .venv
+rm -rf env/datasetenv
 ```
 
-## Creare Con Conda
+## Ricreare Da Zero
 
 ```bash
-conda create -n raindrop-dataset python=3.11
-conda activate raindrop-dataset
+rm -rf env/datasetenv
+python3 -m venv env/datasetenv
+source env/datasetenv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install -r requirements.txt
-```
-
-Aggiornare:
-
-```bash
-conda activate raindrop-dataset
-python -m pip install --upgrade -r requirements.txt
-```
-
-Cancellare:
-
-```bash
-conda deactivate
-conda env remove -n raindrop-dataset
+python -m pip install -r requirements-export.txt
 ```
 
 ## Note GPU
@@ -92,5 +118,3 @@ ufficiale PyTorch, poi installa il resto:
 ```bash
 python -m pip install -r requirements.txt
 ```
-
-Se lavori solo con pandas, dataset JSONL e RAG su CPU, la configurazione base e sufficiente.
