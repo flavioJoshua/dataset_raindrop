@@ -36,6 +36,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlparse
 from urllib.request import HTTPCookieProcessor, HTTPRedirectHandler, Request, build_opener, urlopen
 
+from dotenv import load_dotenv
+
 
 API_BASE = "https://api.raindrop.io/rest/v1"
 DEFAULT_OUTPUT_DIR = "raindrop_articles"
@@ -44,6 +46,7 @@ DEFAULT_DOMAIN_OUTPUT_DIR = "raindrop_test_export"
 DEFAULT_DOMAIN_EXTRACTION_DIR = "estrazione_cookie"
 TOKEN_ENV_NAMES = ("RAINDROP_TOKEN", "RAINDROP_ACCESS_TOKEN")
 USER_AGENT = "raindrop-article-exporter/2.0"
+PROJECT_ROOT = Path(__file__).resolve().parent
 
 
 class RaindropError(RuntimeError):
@@ -114,28 +117,6 @@ class HTMLTextExtractor(HTMLParser):
         text = re.sub(r" *\n *", "\n", text)
         text = re.sub(r"\n{3,}", "\n\n", text)
         return text.strip()
-
-
-def load_dotenv(path: Path) -> None:
-    if not path.exists():
-        return
-
-    for line_number, raw_line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-
-        if not key:
-            raise RaindropError(f"Invalid .env line {line_number}: missing key")
-
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
-
-        os.environ.setdefault(key, value)
 
 
 def get_token() -> str:
@@ -1107,11 +1088,6 @@ def parse_args() -> argparse.Namespace:
         help="Tag name for export-tag or domain name for export-domain.",
     )
     parser.add_argument(
-        "--env",
-        default=".env",
-        help="Path to .env file containing RAINDROP_TOKEN. Default: .env",
-    )
-    parser.add_argument(
         "--output",
         default="",
         help=(
@@ -1280,7 +1256,7 @@ def export_domain(args: argparse.Namespace, token: str, cookie_jar: CookieJar | 
 
 def main() -> int:
     args = parse_args()
-    load_dotenv(Path(args.env))
+    load_dotenv(PROJECT_ROOT / ".env")
     token = get_token()
     cookie_path = cookie_path_for_args(args)
     if cookie_path:
