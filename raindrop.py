@@ -91,7 +91,9 @@ def cookie_path_for_args(args: argparse.Namespace) -> str:
     if args.cookies:
         return args.cookies
     if args.command == "export-domain" and args.selector:
-        return default_cookie_path_for_domain(args.selector)
+        cookie_path = default_cookie_path_for_domain(args.selector)
+        if Path(cookie_path).exists():
+            return cookie_path
     return ""
 
 
@@ -101,6 +103,21 @@ def source_for_args(args: argparse.Namespace) -> str:
     if args.command == "export-domain":
         return "original"
     return "both"
+
+
+def configured_user_agent() -> str:
+    return os.getenv("RAINDROP_USER_AGENT", USER_AGENT).strip() or USER_AGENT
+
+
+def request_headers(*, token: str | None = None) -> dict[str, str]:
+    headers = {
+        "User-Agent": configured_user_agent(),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "it-IT,it;q=0.9,en-US;q=0.8,en;q=0.7",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
 
 
 def request_json(
@@ -140,9 +157,7 @@ def request_content(
     if timeout is None:
         timeout = request_timeout_seconds()
 
-    headers = {"User-Agent": USER_AGENT}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    headers = request_headers(token=token)
 
     opener = build_opener(HTTPCookieProcessor(cookie_jar)) if cookie_jar else None
     last_error: Exception | None = None
@@ -328,10 +343,7 @@ def resolve_cache_url(article_id: int, token: str) -> str:
     url = f"{API_BASE}/raindrop/{article_id}/cache"
     req = Request(
         url,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "User-Agent": USER_AGENT,
-        },
+        headers=request_headers(token=token),
     )
 
     started = time.perf_counter()
@@ -890,8 +902,13 @@ def parse_args() -> argparse.Namespace:
         default="",
         help=(
             "Optional Netscape cookies.txt file for authenticated article downloads. "
-            "For export-domain, default is <domain>_cookies.txt."
+            "For export-domain, <domain>_cookies.txt is used automatically when present."
         ),
+    )
+    parser.add_argument(
+        "--user-agent",
+        default="",
+        help="Optional HTTP User-Agent override. Also configurable with RAINDROP_USER_AGENT.",
     )
     parser.add_argument(
         "--limit",
@@ -956,6 +973,8 @@ def export_domain(args: argparse.Namespace, token: str, cookie_jar: CookieJar | 
 def main() -> int:
     args = parse_args()
     load_dotenv(PROJECT_ROOT / ".env")
+    if args.user_agent:
+        os.environ["RAINDROP_USER_AGENT"] = args.user_agent
     token = get_token()
     cookie_path = cookie_path_for_args(args)
     if cookie_path:

@@ -27,6 +27,7 @@ RAINDROP_DOWNLOAD_DELAY_MS=0
 RAINDROP_DOWNLOAD_JITTER_MS=0
 RAINDROP_REQUEST_TIMEOUT_SECONDS=25
 RAINDROP_REQUEST_RETRIES=2
+# RAINDROP_USER_AGENT=Mozilla/5.0 ...
 ```
 
 Lo script carica sempre il file `.env` dalla root del progetto, cioe dalla
@@ -149,6 +150,25 @@ RAINDROP_REQUEST_RETRIES=2
 Così un articolo problematico non blocca il processo per molti minuti. Se cache
 e originale puntano allo stesso URL, lo script ora prova quell'URL una sola
 volta.
+
+Se un sito si apre nel browser ma blocca lo script, prova con lo User-Agent del
+browser:
+
+```bash
+python3 raindrop.py export-domain medium.com \
+  --output raindrop_articles \
+  --user-agent "Mozilla/5.0 ..."
+```
+
+In alternativa metti lo stesso valore in `.env` con `RAINDROP_USER_AGENT`.
+
+Esempio che ha funzionato con Medium da Firefox su Linux:
+
+```bash
+python3 raindrop.py export-domain medium.com \
+  --output raindrop_articles \
+  --user-agent "Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0"
+```
 
 ## Uso Base
 
@@ -339,10 +359,9 @@ Con questo comando breve lo script usa le convenzioni:
 
 ```text
 Local export directory: raindrop_test_export
-Cookies file: repubblica.it_cookies.txt
 ```
 
-Il nome cookie predefinito e:
+Se esiste un file cookie con nome convenzionale, viene usato automaticamente:
 
 ```text
 <dominio>_cookies.txt
@@ -353,6 +372,9 @@ Quindi per `repubblica.it`:
 ```text
 repubblica.it_cookies.txt
 ```
+
+Se il file non esiste, lo script scarica senza cookie. Puoi sempre indicarne
+uno esplicitamente con `--cookies`.
 
 Esempio esplicito, utile se vuoi cambiare percorsi o usare un nome cookie diverso:
 
