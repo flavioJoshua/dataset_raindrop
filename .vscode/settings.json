@@ -2,5 +2,10 @@
   "python.defaultInterpreterPath": "${workspaceFolder}/env/datasetenv/bin/python",
   "python.terminal.activateEnvironment": true,
   "python-envs.defaultEnvManager": "ms-python.python:venv",
-  "python-envs.defaultPackageManager": "ms-python.python:pip"
+  "python-envs.defaultPackageManager": "ms-python.python:pip",
+  
+  "markdown.styles": [
+    ".vscode/markdown-wide.css"
+  ]
+
 }

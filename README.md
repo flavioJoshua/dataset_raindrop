@@ -1,8 +1,88 @@
 # Raindrop Article Export
 
-Script Python per esportare gli articoli salvati su Raindrop.io in locale.
+Programma Python per estrarre gli articoli salvati nell'account Raindrop.io e
+costruire un dataset locale aggiornabile. Scarica da Raindrop il catalogo degli
+articoli, i tag e gli highlight; recupera il contenuto degli articoli dalla
+cache di Raindrop o dal sito originale; infine salva dati e contenuti in formati
+utilizzabili anche senza accedere nuovamente a Raindrop.
 
-Per ogni articolo esporta:
+## Cosa fa il programma
+
+Il progetto gestisce due fasi collegate:
+
+1. `raindrop.py` estrae i dati da Raindrop.io e mantiene l'archivio locale
+   `raindrop_articles/`.
+2. `extraction.py` legge quell'archivio e genera dataset JSONL selezionabili per
+   tutti gli articoli, tag o dominio, pronti per pandas, Hugging Face Datasets,
+   RAG, embeddings e training.
+
+L'archivio creato da `raindrop.py` è incrementale e può essere aggiornato nel
+tempo. A ogni nuova esecuzione il programma confronta il catalogo corrente con
+`manifest.json`: salta gli articoli invariati, scarica quelli nuovi o modificati
+e ricrea eventuali file mancanti. In questo modo non è necessario riscaricare
+l'intera raccolta dopo ogni modifica fatta su Raindrop.
+
+Il flusso normale per aggiornare il dataset è:
+
+```bash
+# 1. Aggiorna articoli, tag e highlight dall'account Raindrop
+python3 raindrop.py update-articles
+
+# 2. Aggiorna in modo incrementale HTML, testo, JSON e manifest locali
+python3 raindrop.py
+
+# 3. Rigenera, se necessario, il dataset JSONL dai dati locali aggiornati
+python3 extraction.py all
+```
+
+### Cosa fa `update-articles`
+
+```bash
+python3 raindrop.py update-articles
+```
+
+Il comando legge dalla root del progetto il token configurato in `.env`:
+
+```bash
+RAINDROP_TOKEN=il_tuo_token_raindrop
+```
+
+Il token identifica e autorizza l'accesso all'account Raindrop.io. Lo script
+interroga le API dell'account, recupera tutte le pagine dei raindrop e tutti gli
+highlight, conserva nel catalogo soltanto gli elementi con `type: "article"` e
+associa ogni highlight al relativo articolo tramite il suo ID Raindrop.
+
+Scrive, in formato JSON UTF-8 indentato:
+
+```text
+raindrop_articles/
+├── articles.json     # array di tutti gli articoli con tag e highlight associati
+└── highlights.json   # array completo degli highlight restituiti da Raindrop
+```
+
+`articles.json` contiene per ogni articolo i dati restituiti da Raindrop, tra
+cui `_id`, `title`, `link`, `domain`, `created`, `lastUpdate`, `tags`,
+`collection`, `excerpt`, `note` e `highlights`. `highlights.json` conserva anche
+la risposta separata e completa dell'API degli highlight.
+
+Il comando sostituisce integralmente questi due cataloghi con la situazione
+corrente dell'account. Non scarica le pagine HTML, non crea i file `.txt` e non
+aggiorna `manifest.json`: queste operazioni vengono eseguite dal successivo
+`python3 raindrop.py`.
+
+Il percorso del catalogo principale può essere cambiato con `--articles-file`;
+`highlights.json` viene scritto nella stessa directory:
+
+```bash
+python3 raindrop.py update-articles --articles-file output/catalogo.json
+# scrive output/catalogo.json e output/highlights.json
+```
+
+`python3 raindrop.py --refresh` combina l'aggiornamento del catalogo remoto con
+l'export locale. È possibile anche estrarre o aggiornare soltanto gli articoli
+di uno specifico tag o dominio con `export-tag` ed `export-domain`.
+
+Per ogni articolo `raindrop.py` esporta:
 
 - una copia HTML locale in `raindrop_articles/files/`
 - una versione testo in `raindrop_articles/text/`
@@ -27,11 +107,15 @@ RAINDROP_DOWNLOAD_DELAY_MS=0
 RAINDROP_DOWNLOAD_JITTER_MS=0
 RAINDROP_REQUEST_TIMEOUT_SECONDS=25
 RAINDROP_REQUEST_RETRIES=2
-# RAINDROP_USER_AGENT=Mozilla/5.0 ...
+RAINDROP_USER_AGENT=Mozilla/5.0 (X11; Linux x86_64; rv:152.0) Gecko/20100101 Firefox/152.0
 ```
 
 Lo script carica sempre il file `.env` dalla root del progetto, cioe dalla
 directory dove si trova `raindrop.py`.
+
+`RAINDROP_USER_AGENT` e consigliato: il valore Firefox riportato sopra e gia
+stato verificato e permette di scaricare correttamente anche da siti che
+limitano o bloccano lo User-Agent predefinito dello script.
 
 Lo script legge anche `RAINDROP_ACCESS_TOKEN`, se preferisci usare quel nome.
 
@@ -210,6 +294,10 @@ raindrop_articles/
     Titolo articolo.json
   manifest.json
 ```
+
+La struttura completa dell'output, il ruolo di `articles.json`,
+`articles.csv`, `manifest.json` e il calcolo delle signature sono descritti in
+[README_Output.md](README_Output.md).
 
 ## Esempi
 
