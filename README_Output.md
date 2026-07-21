@@ -166,46 +166,74 @@ Nella tabella, `<output>` indica la directory di export. Il suo valore
 predefinito è `raindrop_articles/`, tranne per `export-domain`, che usa
 `raindrop_test_export/`. L'opzione `--output` può cambiare questa directory.
 
-| File o percorso predefinito | Può cambiare? | Chi lo crea o aggiorna | Quali dati contiene | Come si collega agli altri dati | Funzione principale |
+I file vengono prodotti in tre processi distinti e consecutivi:
+
+1. **Catalogo Raindrop** — `python3 raindrop.py update-articles` interroga le
+   API e scrive i metadati ricevuti dall'account.
+2. **Export incrementale** — `python3 raindrop.py` legge il catalogo e crea o
+   aggiorna HTML, testo, JSON di dettaglio e manifest.
+3. **Dataset derivato** — `python3 extraction.py all` legge catalogo, manifest
+   e testi locali e genera i JSONL per l'analisi e l'AI.
+
+`python3 raindrop.py --refresh` esegue il processo 1 e subito dopo il processo
+2 con un solo comando.
+
+| File o percorso predefinito | Può cambiare? | Processo di creazione o aggiornamento | Quali dati contiene | Come si collega agli altri dati | Funzione principale |
 | --- | --- | --- | --- | --- | --- |
-| `raindrop_articles/articles.json` | Sì. `--articles-file` cambia nome e percorso. | `python3 raindrop.py update-articles` oppure un export con `--refresh`. | Catalogo completo degli articoli: `_id`, titolo, link, dominio, date, tag, collection, excerpt, note, media e highlight associati. | `_id` è l'ID dell'articolo. Corrisponde alla chiave in `manifest.json` e al campo `id` nei JSON di dettaglio. | Fonte dei metadati usata dagli export e da `extraction.py`. |
-| `raindrop_articles/highlights.json` | La directory segue `--articles-file`, ma il nome resta `highlights.json`. | `update-articles` o `--refresh`. | Elenco completo e separato degli highlight restituiti dall'API Raindrop. | `raindropRef` identifica l'articolo; corrisponde a `_id` in `articles.json`. | Conservare la risposta completa degli highlight e permettere elaborazioni specifiche. |
-| `<output>/manifest.json` | La directory cambia con `--output`; il nome resta `manifest.json`. | Ogni export eseguito da `raindrop.py`. | Una voce per articolo con titolo, percorsi HTML/TXT/JSON, signature, errore e data di aggiornamento; contiene anche il riepilogo dell'ultimo export. | La chiave di `items`, per esempio `"1738177662"`, è l'ID Raindrop. I campi `html_path`, `text_path` e `json_path` portano direttamente ai file di dettaglio. | Indice operativo, resume, controllo delle modifiche e accesso ai file di ogni articolo. |
-| `<output>/files/<nome>.html` | Sì. Directory con `--output`; nome generato dal titolo e, quando necessario, dall'ID. | Export di `raindrop.py`. | Copia HTML scaricata dalla cache Raindrop o dal sito originale. | Il percorso esatto è in `manifest.json → items → <ID> → html_path`. | Conservare la pagina originale per consultazione o nuova estrazione. |
-| `<output>/text/<nome>.txt` | Sì. Directory con `--output`; nome generato come quello HTML. | Export di `raindrop.py`. | Titolo, link, data Raindrop, eventuali excerpt e nota, seguiti dal testo estratto dall'articolo. | Il percorso esatto è in `manifest.json → items → <ID> → text_path`. `extraction.py` usa questo collegamento. | Testo pulito per ricerca, dataset JSONL, RAG, embeddings e training. |
-| `<output>/json/<nome>.json` | Sì. Directory con `--output`; nome generato come quello HTML. Il file può non esistere. | Export di `raindrop.py`, soltanto se esistono tag o highlight. | `id`, `title`, `link`, `tags` e `highlights`, comprese date, note, colori e tag degli highlight. | `id` corrisponde alla chiave del manifest e a `_id` nel catalogo. Il percorso è in `json_path`; se non serve un JSON, `json_path` è vuoto. | Metadati compatti di dettaglio per un singolo articolo. |
-| `raindrop_articles/articles.csv` | È un file storico; il codice attuale non ne gestisce nome o percorso. | Non viene creato né aggiornato dal codice attuale. | Vecchio indice tabellare con ID, titolo, link, dominio, data, tag, collection e vecchi campi di download. | `id` può essere collegato a `_id` del catalogo e alla chiave del manifest, ma i dati possono essere obsoleti. | Compatibilità o analisi storica; non deve essere usato per il resume corrente. |
-| `<dataset>/<selezione>_articles.jsonl` | Sì, tramite `extraction.py --output`; il prefisso dipende dalla selezione. | `extraction.py all`, `tag` o `domain`. | Una riga JSON per articolo selezionato, con metadati e testo completo. | Deriva da `articles.json`; il testo viene trovato tramite `manifest.json` e `text_path`. | Dataset finale a livello di articolo. |
-| `<dataset>/<selezione>_chunks.jsonl` | Sì, tramite `extraction.py --output`; nome legato alla selezione. | `extraction.py all`, `tag` o `domain`. | Più righe per articolo, ottenute suddividendo il testo in chunk sovrapposti. | Ogni chunk mantiene l'identità dell'articolo sorgente. | Dataset per RAG, indicizzazione, embeddings e training a segmenti. |
+| `raindrop_articles/articles.json` | Sì. `--articles-file` cambia nome e percorso. | **1 — Catalogo.** `update-articles` lo sostituisce con i dati correnti dell'account. Anche `--refresh` lo aggiorna prima dell'export. | Catalogo completo degli articoli: `_id`, titolo, link, dominio, date, tag, collection, excerpt, note, media e highlight associati. | `_id` è l'ID dell'articolo. Corrisponde alla chiave in `manifest.json` e al campo `id` nei JSON di dettaglio. | Fonte dei metadati usata dagli export e da `extraction.py`. |
+| `raindrop_articles/highlights.json` | La directory segue `--articles-file`, ma il nome resta `highlights.json`. | **1 — Catalogo.** `update-articles` o `--refresh` scarica tutti gli highlight dall'API `/highlights` e sostituisce il file. | Elenco completo e separato degli highlight restituiti dall'API Raindrop. | `raindropRef` identifica l'articolo; corrisponde a `_id` in `articles.json`. | Conservare la risposta completa degli highlight e permettere elaborazioni specifiche. |
+| `<output>/manifest.json` | La directory cambia con `--output`; il nome resta `manifest.json`. | **2 — Export.** `raindrop.py` lo aggiorna dopo ogni articolo e scrive il riepilogo alla fine. Non viene creato da `update-articles`. | Una voce per articolo con titolo, percorsi HTML/TXT/JSON, signature, errore e data di aggiornamento; contiene anche il riepilogo dell'ultimo export. | La chiave di `items`, per esempio `"1738177662"`, è l'ID Raindrop. I campi `html_path`, `text_path` e `json_path` portano direttamente ai file di dettaglio. | Indice operativo, resume, controllo delle modifiche e accesso ai file di ogni articolo. |
+| `<output>/files/<nome>.html` | Sì. Directory con `--output`; nome generato dal titolo e, quando necessario, dall'ID. | **2 — Export.** `raindrop.py` scarica la cache Raindrop o la pagina originale; salta il download se articolo, signature e file risultano invariati. | Copia HTML scaricata dalla cache Raindrop o dal sito originale. | Il percorso esatto è in `manifest.json → items → <ID> → html_path`. | Conservare la pagina originale per consultazione o nuova estrazione. |
+| `<output>/text/<nome>.txt` | Sì. Directory con `--output`; nome generato come quello HTML. | **2 — Export.** `raindrop.py` estrae il testo dal contenuto scaricato e lo scrive insieme all'intestazione dell'articolo. | Titolo, link, data Raindrop, eventuali excerpt e nota, seguiti dal testo estratto dall'articolo. | Il percorso esatto è in `manifest.json → items → <ID> → text_path`. `extraction.py` usa questo collegamento. | Testo pulito per ricerca, dataset JSONL, RAG, embeddings e training. |
+| `<output>/json/<nome>.json` | Sì. Directory con `--output`; nome generato come quello HTML. Il file può non esistere. | **2 — Export.** `raindrop.py` lo crea o aggiorna soltanto se l'articolo possiede almeno un tag o un highlight. | `id`, `title`, `link`, `tags` e `highlights`, comprese date, note, colori e tag degli highlight. | `id` corrisponde alla chiave del manifest e a `_id` nel catalogo. Il percorso è in `json_path`; se non serve un JSON, `json_path` è vuoto. | Metadati compatti di dettaglio per un singolo articolo. |
+| `raindrop_articles/articles.csv` | È un file storico; il codice attuale non ne gestisce nome o percorso. | **Fuori dal processo attuale.** Nessuno dei comandi correnti lo crea o lo aggiorna. | Vecchio indice tabellare con ID, titolo, link, dominio, data, tag, collection e vecchi campi di download. | `id` può essere collegato a `_id` del catalogo e alla chiave del manifest, ma i dati possono essere obsoleti. | Compatibilità o analisi storica; non deve essere usato per il resume corrente. |
+| `<dataset>/<selezione>_articles.jsonl` | Sì, tramite `extraction.py --output`; il prefisso dipende dalla selezione. | **3 — Dataset derivato.** `extraction.py all`, `tag` o `domain` lo rigenera leggendo catalogo, manifest e TXT; non interroga Raindrop. | Una riga JSON per articolo selezionato, con metadati e testo completo. | Deriva da `articles.json`; il testo viene trovato tramite `manifest.json` e `text_path`. | Dataset finale a livello di articolo. |
+| `<dataset>/<selezione>_chunks.jsonl` | Sì, tramite `extraction.py --output`; nome legato alla selezione. | **3 — Dataset derivato.** La stessa esecuzione di `extraction.py` divide ogni testo in chunk e riscrive il file. | Più righe per articolo, ottenute suddividendo il testo in chunk sovrapposti. | Ogni chunk mantiene l'identità dell'articolo sorgente. | Dataset per RAG, indicizzazione, embeddings e training a segmenti. |
 
 ### Dal manifest ai dati di un articolo
 
-Il collegamento affidabile tra tutti i file è l'ID Raindrop. Per esempio, per
-l'articolo con ID `1738177662`:
+Il collegamento affidabile tra tutti i file è l'ID Raindrop. Nell'output
+predefinito, tutti i percorsi sotto partono dalla directory
+`raindrop_articles/`. Per esempio, per l'articolo con ID `1738177662`:
 
 ```text
-manifest.json
-└── items
-    └── "1738177662"
-        ├── html_path ──> files/<nome>.html
-        ├── text_path ──> text/<nome>.txt
-        └── json_path ──> json/<nome>.json
-
-articles.json
-└── articolo con _id = 1738177662
-
-json/<nome>.json
-└── id = 1738177662
+raindrop_articles/
+├── manifest.json
+│   └── items
+│       └── "1738177662"
+│           ├── html_path ──> raindrop_articles/files/<nome>.html
+│           ├── text_path ──> raindrop_articles/text/<nome>.txt
+│           └── json_path ──> raindrop_articles/json/<nome>.json
+│
+├── articles.json
+│   └── articolo con _id = 1738177662
+│
+├── files/
+│   └── <nome>.html
+│
+├── text/
+│   └── <nome>.txt
+│
+└── json/
+    └── <nome>.json
+        └── campo id = 1738177662
 ```
+
+Quindi `manifest.json`, `articles.json`, `files/`, `text/` e `json/` si trovano
+tutti dentro `raindrop_articles/` quando si usa il percorso predefinito. Se il
+comando contiene, per esempio, `--output mio_export`, soltanto `manifest.json`,
+`files/`, `text/` e `json/` vengono creati sotto `mio_export/`. Il catalogo
+`articles.json` resta nel percorso indicato da `--articles-file`, che per
+default è `raindrop_articles/articles.json`.
 
 Una procedura automatica dovrebbe quindi:
 
-1. aprire `manifest.json`;
+1. aprire `raindrop_articles/manifest.json`;
 2. scorrere le coppie `ID → voce` contenute in `items`;
 3. usare `text_path`, `html_path` o `json_path` per leggere il dettaglio
    desiderato;
-4. cercare lo stesso ID come `_id` in `articles.json` quando servono tutti i
-   metadati Raindrop;
+4. cercare lo stesso ID come `_id` in
+   `raindrop_articles/articles.json` quando servono tutti i metadati Raindrop;
 5. controllare che il percorso non sia vuoto e che il file esista, perché il
    JSON di dettaglio è facoltativo e un download può essere fallito;
 6. controllare `download_error`, `article_signature`, `metadata_signature` e
@@ -339,25 +367,108 @@ mappa indicizzata dall'ID Raindrop. Ogni voce contiene:
 - `title`: titolo noto al momento dell'export;
 - `html_path`, `text_path`, `json_path`: file associati; `json_path` è vuoto se
   l'articolo non ha tag né highlight;
-- `article_signature`: impronta dei dati dell'articolo che possono richiedere
-  un nuovo download;
-- `metadata_signature`: impronta dei metadati scritti nel JSON;
+- `article_signature`: hash **SHA-256** calcolato sui campi Raindrop `id`,
+  `title`, `link`, `excerpt`, `note`, `created`, `lastUpdate` e `cache`. Serve a
+  riconoscere una modifica ai dati dell'articolo e decidere se ripetere
+  l'export;
+- `metadata_signature`: hash **SHA-256** calcolato su `id`, `title`, `link`,
+  `tags` e `highlights`, cioè sui dati destinati al file JSON di dettaglio.
+  Serve a riconoscere modifiche a tag e highlight;
 - `download_error`: ultimo errore di download, oppure stringa vuota;
 - `resumed_from_existing`: quando presente, indica che file già esistenti sono
   stati adottati nel manifest;
 - `updated_at`: istante UTC in cui quella voce è stata scritta o aggiornata.
 
-La sezione `summary` descrive l'ultimo lancio:
+### Esempio di `manifest.json`
 
-- `articles`: articoli selezionati;
-- `written`: articoli scritti;
-- `unchanged`: articoli saltati perché invariati o adottati perché completi;
-- `failed`: articoli falliti;
-- `updated_at`: fine dell'ultimo export, in UTC.
+Questo esempio mostra due articoli selezionati: il primo è stato scaricato e il
+secondo è fallito:
+
+```json
+{
+  "items": {
+    "1738177662": {
+      "title": "Titolo dell'articolo scaricato",
+      "html_path": "raindrop_articles/files/Titolo dell'articolo scaricato.html",
+      "text_path": "raindrop_articles/text/Titolo dell'articolo scaricato.txt",
+      "json_path": "raindrop_articles/json/Titolo dell'articolo scaricato.json",
+      "article_signature": "32e0e25b8fb7dc134866244e962b70b364773f61b11e2b2b6082dcf5e28bc715",
+      "metadata_signature": "e1049de6052395565112e90b040566f912ec06b32ce73d2884053fd6b384a99d",
+      "download_error": "",
+      "resumed_from_existing": false,
+      "updated_at": "2026-05-30T10:16:44Z"
+    },
+    "1737729848": {
+      "title": "Titolo dell'articolo non scaricato",
+      "html_path": "raindrop_articles/files/Titolo dell'articolo non scaricato.html",
+      "text_path": "raindrop_articles/text/Titolo dell'articolo non scaricato.txt",
+      "json_path": "",
+      "article_signature": "35ff85a0949fb23dec4c8f8b9f6cbcc933791d17c7e0c03283d52b7e8cdffec6",
+      "metadata_signature": "4381db73c6b5491631d8456ce59370cbb1808d81e916a221965cf55236b4e8b1",
+      "download_error": "HTTP 403 while downloading the original article",
+      "resumed_from_existing": false,
+      "updated_at": "2026-05-30T10:16:45Z"
+    }
+  },
+  "summary": {
+    "articles": 2,
+    "written": 1,
+    "unchanged": 0,
+    "failed": 1,
+    "updated_at": "2026-05-30T10:16:45Z"
+  }
+}
+```
+
+La sezione `summary` contiene soltanto i **contatori dell'ultima esecuzione**;
+non contiene il testo o la lista degli articoli:
+
+- `articles: 2` significa che l'ultimo comando ha selezionato due articoli da
+  elaborare. La selezione dipende dal comando (`tutti`, tag o dominio) e da un
+  eventuale `--limit`;
+- `written: 1` significa che per un articolo il download è riuscito e lo script
+  ha scritto i file HTML e TXT, oltre al JSON quando richiesto. Il numero non
+  contiene i dati dell'articolo: questi si trovano nella rispettiva voce di
+  `items` e nei percorsi `html_path`, `text_path` e `json_path`;
+- `unchanged: 0` significa che nessun articolo è stato lasciato invariato. Un
+  articolo entra in questo conteggio quando signature e file coincidono già,
+  oppure quando i file completi esistono e vengono adottati dal manifest con
+  `resumed_from_existing: true`;
+- `failed: 1` significa che un articolo non è stato esportato correttamente,
+  per esempio per HTTP 403/404/500, timeout, TLS, contenuto non disponibile o
+  ID Raindrop non valido. Il numero dice quanti errori ci sono, mentre il motivo
+  si trova nella voce dell'articolo, nel campo `download_error`. In caso di
+  fallimento i percorsi possono essere registrati nel manifest anche se i file
+  corrispondenti non sono stati creati;
+- `updated_at: "2026-05-30T10:16:45Z"` è la data e ora UTC in cui è terminata
+  l'ultima esecuzione. La `Z` finale indica UTC.
+
+Il controllo più utile è quindi partire da `summary.failed`. Se è maggiore di
+zero, bisogna scorrere `items` e cercare le voci con `download_error` non vuoto.
+Fa eccezione un record privo di `_id` numerico: viene contato come fallito, ma
+non può essere inserito in `items` perché manca proprio l'ID da usare come
+chiave.
+
+Per elencare gli errori registrati nel manifest con `jq`:
+
+```bash
+jq '.items | to_entries[] | select(.value.download_error != "") |
+    {id: .key, title: .value.title, error: .value.download_error}' \
+  raindrop_articles/manifest.json
+```
 
 ### Come vengono calcolate le signature
 
-Entrambe sono hash SHA-256 di un JSON serializzato con chiavi ordinate e UTF-8.
+Entrambe sono hash crittografici **SHA-256**, rappresentati nel manifest come
+64 caratteri esadecimali. Prima del calcolo, il programma costruisce un oggetto
+con i soli campi elencati sotto, lo serializza in JSON con le chiavi ordinate,
+mantiene i caratteri Unicode originali (`ensure_ascii=False`), converte il
+risultato in byte UTF-8 e infine calcola SHA-256:
+
+```python
+encoded = json.dumps(value, ensure_ascii=False, sort_keys=True).encode("utf-8")
+signature = hashlib.sha256(encoded).hexdigest()
+```
 
 `article_signature` include:
 
@@ -365,7 +476,9 @@ Entrambe sono hash SHA-256 di un JSON serializzato con chiavi ordinate e UTF-8.
 id, title, link, excerpt, note, created, lastUpdate, cache
 ```
 
-`metadata_signature` include esattamente i metadati del JSON per articolo:
+`metadata_signature` include esattamente i metadati del JSON per articolo. Gli
+highlight comprendono a loro volta `id`, `text`, `note`, `color`, `created`,
+`lastUpdate` e `tags`:
 
 ```text
 id, title, link, tags, highlights
