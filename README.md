@@ -338,6 +338,53 @@ Il log non salva header, token o cookie. Salva URL, tempi, status HTTP, KB
 scaricati e messaggi di errore utili a distinguere problemi di rete, paywall,
 redirect/cache e parsing del contenuto.
 
+### Cosa viene registrato e dove
+
+Terminale, `manifest.json` e log JSONL non contengono le stesse informazioni:
+
+| Operazione | Terminale | `manifest.json` | `logs/*.log` |
+| --- | --- | --- | --- |
+| Caricamento dei file da `cookie/` | Mostra ogni file e il numero di cookie caricati. | Non registrato. | Non registrato. |
+| Valori dei cookie | Non mostrati. | Non registrati. | Non registrati. |
+| Lettura e controllo del manifest | Non produce un messaggio specifico. | È il file utilizzato per il controllo. | Non registrato. |
+| Verifica della presenza di HTML, TXT e JSON | Non produce un messaggio per ogni file controllato. | I percorsi attesi sono in `html_path`, `text_path` e `json_path`. | Non registrata come evento separato. |
+| Articolo completo e invariato | Mostra `unchanged`. | Entra nel contatore `summary.unchanged`. | Normalmente non genera un evento individuale. |
+| File completi trovati ma non ancora registrati | Mostra `unchanged`. | Scrive la voce con `resumed_from_existing: true`. | Genera `article_resume_existing`. |
+| Download di un articolo | Mostra `written` oppure l'errore. | Aggiorna la voce dell'articolo e i contatori finali. | Genera `http_request` e `article_download`. |
+| Download fallito | Mostra `download failed`. | Scrive `download_error` e incrementa `summary.failed`. | Genera `article_download` con `ok: false` e `article_download_failed`. |
+
+Quindi il comando:
+
+```bash
+python3 raindrop.py --cookies
+```
+
+non scrive nel log un evento per ogni articolo saltato. Il numero complessivo
+degli articoli invariati si trova alla fine di
+`raindrop_articles/manifest.json`:
+
+```json
+{
+  "summary": {
+    "articles": 3392,
+    "written": 12,
+    "unchanged": 3378,
+    "failed": 2,
+    "updated_at": "2026-07-21T10:30:00Z"
+  }
+}
+```
+
+Un download riuscito genera invece nel log una riga simile a questa:
+
+```json
+{"ts":"2026-07-21T10:29:41Z","event":"article_download","article_id":1738177662,"title":"Titolo articolo","source":"original","url":"https://example.com/articolo","ok":true,"elapsed_ms":421,"text_chars":8450,"html_chars":19320}
+```
+
+`summary.unchanged` fornisce il totale degli articoli saltati, ma non la lista
+dei loro ID. Per gli articoli invariati già presenti nel manifest non viene
+attualmente scritta una riga specifica nel log giornaliero.
+
 ## Resume E Download Lenti
 
 Il download e incrementale. Se il processo si ferma a meta, rilancia lo stesso
@@ -820,6 +867,56 @@ python3 raindrop.py export-domain repubblica.it \
   --output raindrop_test_export \
   --source original \
   --cookies
+```
+
+### Esempio: riscaricare Il Sole 24 Ore con autenticazione
+
+Se i file scaricati dalla cache contengono soltanto un'anteprima o un testo
+molto breve, è possibile richiedere nuovamente gli articoli al sito originale
+usando i cookie presenti in `cookie/`:
+
+```bash
+python3 raindrop.py export-domain ilsole24ore.com \
+  --output raindrop_articles \
+  --source original \
+  --cookies \
+  --force
+```
+
+Significato di ogni parte:
+
+| Parte del comando | Effetto |
+| --- | --- |
+| `export-domain ilsole24ore.com` | Seleziona dal catalogo gli articoli di `ilsole24ore.com` e dei suoi sottodomini, per esempio `www.ilsole24ore.com`, `24plus.ilsole24ore.com`, `stream24.ilsole24ore.com` e `ntplusentilocaliedilizia.ilsole24ore.com`. |
+| `--output raindrop_articles` | Scrive HTML, TXT, JSON e manifest nell'archivio principale, invece del default `raindrop_test_export/` usato da `export-domain`. |
+| `--source original` | Richiede la pagina direttamente al Sole 24 Ore e non usa la copia cache di Raindrop. |
+| `--cookies` | Carica e unisce tutti i file Netscape `*.txt` presenti in `cookie/`; il cookie jar invia al Sole 24 Ore soltanto i cookie validi per quel dominio. |
+| `--force` | Ignora lo stato precedente del manifest e riscarica tutti gli articoli selezionati, anche quando HTML, TXT e JSON esistono già. |
+
+Questo comando non aggiorna prima `articles.json`. Se si vuole anche recuperare
+il catalogo più recente dall'account Raindrop, aggiungere `--refresh`:
+
+```bash
+python3 raindrop.py export-domain ilsole24ore.com \
+  --output raindrop_articles \
+  --source original \
+  --cookies \
+  --refresh \
+  --force
+```
+
+Attenzione: `--force` si applica a **tutti** gli articoli del dominio
+selezionato, non soltanto agli articoli incompleti. Prima di un'esecuzione
+completa si può verificare il comportamento su un solo articolo con
+`--limit 1` e una directory di test separata:
+
+```bash
+python3 raindrop.py export-domain ilsole24ore.com \
+  --limit 1 \
+  --output raindrop_sole24ore_test \
+  --source original \
+  --cookies \
+  --force
 ```
 
 ## File JSON
