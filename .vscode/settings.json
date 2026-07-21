@@ -6,6 +6,7 @@
   
   "markdown.styles": [
     ".vscode/markdown-wide.css"
-  ]
+  ],
+  "python.terminal.useEnvFile": true
 
 }
