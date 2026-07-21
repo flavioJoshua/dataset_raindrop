@@ -197,6 +197,37 @@ def load_cookie_jar(path: str | None) -> CookieJar | None:
     return jar
 
 
+def load_cookie_directory(path: Path) -> CookieJar:
+    if not path.exists():
+        raise RaindropError(
+            f"Cookie directory not found: {path}. "
+            "Create it and add Netscape *.txt cookie files."
+        )
+    if not path.is_dir():
+        raise RaindropError(f"Cookie path is not a directory: {path}")
+
+    cookie_files = sorted(candidate for candidate in path.glob("*.txt") if candidate.is_file())
+    if not cookie_files:
+        raise RaindropError(
+            f"No cookie files found in {path}. "
+            "Expected one or more Netscape *.txt files."
+        )
+
+    combined_jar = CookieJar()
+    for cookie_file in cookie_files:
+        file_jar = load_cookie_jar(str(cookie_file))
+        if file_jar is None:
+            continue
+        for cookie in file_jar:
+            combined_jar.set_cookie(cookie)
+
+    print(
+        f"Loaded {len(combined_jar)} cookies from {len(cookie_files)} files in {path}",
+        file=sys.stderr,
+    )
+    return combined_jar
+
+
 def require_existing_dir(path: Path, *, label: str) -> None:
     if not path.exists():
         raise RaindropError(f"{label} does not exist: {path}")

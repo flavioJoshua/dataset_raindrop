@@ -5,15 +5,17 @@ struttura delle directory e il ruolo dei file prodotti.
 
 `raindrop.py` estrae dall'account Raindrop.io il catalogo degli articoli con
 tag e highlight, scarica il contenuto dalla cache di Raindrop o dai siti
-originali e costruisce un archivio locale. L'archivio è aggiornabile: tramite
-`manifest.json` il programma riconosce gli articoli invariati, nuovi, modificati
-o con file mancanti, evitando di riscaricare inutilmente l'intera raccolta.
+originali e costruisce un archivio locale. Tramite `manifest.json` il programma
+riconosce gli articoli nuovi, quelli invariati e quelli con file mancanti. Il
+codice attuale, però, non garantisce la riscrittura di un articolo modificato
+quando tutti i suoi file locali esistono già; per riscrivere tutto occorre
+usare `--force`.
 
 Il ciclo di aggiornamento consigliato è:
 
 ```bash
-python3 raindrop.py update-articles  # aggiorna il catalogo da Raindrop
-python3 raindrop.py                  # aggiorna l'archivio locale
+python3 raindrop.py update-articles  # aggiorna solo i cataloghi JSON, non le pagine
+python3 raindrop.py                  # scarica nuovi articoli e file mancanti
 python3 extraction.py all            # rigenera il dataset JSONL derivato
 ```
 
@@ -32,10 +34,14 @@ raindrop_articles/articles.json
 raindrop_articles/highlights.json
 ```
 
+Non apre né scarica gli URL contenuti nel campo `link`: quindi non produce
+HTML, TXT, JSON di dettaglio o manifest. Questi vengono creati dal successivo
+comando di export, `python3 raindrop.py`.
+
 Questo comando aggiorna soltanto il catalogo dei metadati: non scarica HTML o
 testo e non modifica il manifest. Il successivo `python3 raindrop.py` legge
-`articles.json` e aggiorna incrementalmente `files/`, `text/`, `json/` e
-`manifest.json`.
+`articles.json`, scarica gli articoli nuovi o con file mancanti e aggiorna
+`files/`, `text/`, `json/` e `manifest.json`.
 
 Le directory di output sono escluse da Git: vengono create localmente quando
 si esegue lo script e quindi normalmente non compaiono nel repository GitHub.
@@ -64,16 +70,36 @@ necessariamente la cronologia esatta dei comandi eseguiti in passato.
 
 ## Qual è l'output predefinito
 
-Il default dipende dal comando:
+Il default dipende dal comando. `--refresh` non è un comando separato: è
+un'opzione che aggiorna prima il catalogo Raindrop e poi continua con l'export
+richiesto.
 
-| Comando | Directory predefinita |
-| --- | --- |
-| `python3 raindrop.py` | `raindrop_articles/` |
-| `python3 raindrop.py export-tag <tag>` | `raindrop_articles/` |
-| `python3 raindrop.py update-articles` | aggiorna il catalogo in `raindrop_articles/` |
-| `python3 raindrop.py export-domain <dominio>` | `raindrop_test_export/` |
+| Comando | Cosa seleziona o aggiorna | Directory/file predefiniti |
+| --- | --- | --- |
+| `python3 raindrop.py` | Esporta tutti gli articoli presenti nel catalogo locale. | `raindrop_articles/files/`, `text/`, `json/` e `manifest.json`. |
+| `python3 raindrop.py --refresh` | Prima sostituisce il catalogo con i dati attuali dell'account, poi esporta tutti gli articoli. | Catalogo in `raindrop_articles/articles.json` e `highlights.json`; export in `raindrop_articles/`. |
+| `python3 raindrop.py --refresh --force` | Aggiorna il catalogo e riscrive tutti gli articoli selezionati, anche se i file esistono. | Catalogo ed export in `raindrop_articles/`. |
+| `python3 raindrop.py export-tag <tag>` | Esporta soltanto gli articoli che possiedono esattamente il tag indicato. | `raindrop_articles/`. |
+| `python3 raindrop.py export-tag <tag> --refresh` | Aggiorna il catalogo e poi esporta gli articoli con il tag indicato. | Catalogo ed export in `raindrop_articles/`. |
+| `python3 raindrop.py update-articles` | Aggiorna soltanto il catalogo; non scarica HTML/TXT e non aggiorna il manifest. | `raindrop_articles/articles.json` e `raindrop_articles/highlights.json`. |
+| `python3 raindrop.py export-domain <dominio>` | Esporta soltanto gli articoli del dominio indicato. | `raindrop_test_export/`; il catalogo letto resta `raindrop_articles/articles.json`. |
+| `python3 raindrop.py export-domain <dominio> --refresh` | Aggiorna il catalogo e poi esporta gli articoli del dominio indicato. | Catalogo in `raindrop_articles/`; export in `raindrop_test_export/`. |
 
-L'opzione `--output <directory>` sostituisce sempre il default. Per esempio:
+### Tutte le opzioni di `raindrop.py`
+
+| Opzione | Valore predefinito | A cosa serve | Esempio |
+| --- | --- | --- | --- |
+| `-h`, `--help` | — | Mostra nel terminale la sintassi, i comandi e tutte le opzioni disponibili, poi termina senza creare file. | `python3 raindrop.py --help` |
+| `--output <directory>` | `raindrop_articles/`; per `export-domain`, `raindrop_test_export/` | Cambia la directory di HTML, TXT, JSON e manifest. Non cambia il catalogo e non ha effetto operativo su `update-articles`. | `--output mio_export` |
+| `--articles-file <file>` | `raindrop_articles/articles.json` | Cambia il file del catalogo letto o scritto. Durante l'aggiornamento, `highlights.json` viene scritto nella stessa directory del file indicato. | `--articles-file dati/catalogo.json` |
+| `--refresh` | disattivato | Prima dell'export interroga Raindrop e sostituisce `articles.json` e `highlights.json`. Con `update-articles` è superfluo, perché quel comando aggiorna già il catalogo. | `python3 raindrop.py --refresh` |
+| `--source both\|cache\|original` | `both`; per `export-domain`, `original` | Sceglie da dove scaricare il contenuto. `both` prova prima la copia permanente Raindrop e poi il sito originale. | `--source original` |
+| `--cookies` | disattivato | Carica e unisce tutti i file Netscape `*.txt` presenti esclusivamente nella directory `cookie/` della root del progetto. | `python3 raindrop.py --cookies` |
+| `--user-agent <testo>` | valore di `RAINDROP_USER_AGENT` oppure User-Agent interno | Sostituisce lo User-Agent HTTP per la singola esecuzione. | `--user-agent "Mozilla/5.0 ..."` |
+| `--limit <numero>` | `0`, cioè nessun limite | Elabora soltanto i primi N articoli dopo la selezione generale, per tag o dominio. | `--limit 5` |
+| `--force` | disattivato | Ignora il controllo del manifest e riscrive i file di tutti gli articoli selezionati. | `python3 raindrop.py --force` |
+
+`--output` sostituisce il default della directory di export. Per esempio:
 
 ```bash
 python3 raindrop.py --limit 3 --output raindrop_test_export
@@ -113,7 +139,7 @@ python3 raindrop.py export-domain repubblica.it \
   --limit 1 \
   --output raindrop_test_export \
   --source original \
-  --cookies repubblica.it_cookies.txt
+  --cookies
 ```
 
 ### `raindrop_domain_test/`
@@ -254,6 +280,24 @@ Il file conserva HTML, non soltanto il testo visibile. Se la risposta non è
 HTML, lo script la racchiude in una pagina HTML minima. Non è garantito che la
 copia includa risorse esterne come immagini, CSS o JavaScript.
 
+Esempio semplificato di `raindrop_articles/files/Titolo articolo.html`:
+
+```html
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <title>Titolo articolo</title>
+</head>
+<body>
+  <h1>Titolo articolo</h1>
+  <p>Questo è il contenuto originale della pagina scaricata.</p>
+</body>
+</html>
+```
+
+Il contenuto reale dipende dal sito sorgente e può essere molto più grande.
+
 ### `text/`: testo estratto
 
 Contiene il testo leggibile estratto dalla pagina, senza il markup HTML. Prima
@@ -267,6 +311,25 @@ del corpo lo script aggiunge un'intestazione con:
 
 Questi `.txt` sono l'input principale usato da `extraction.py` per creare i
 dataset JSONL.
+
+Esempio di `raindrop_articles/text/Titolo articolo.txt`:
+
+```text
+Titolo articolo
+https://example.com/articolo
+Created: 2026-05-30T08:46:10.105Z
+
+Breve descrizione salvata nel campo excerpt.
+
+Note: Nota personale salvata in Raindrop.
+
+---
+Testo leggibile estratto dal corpo dell'articolo.
+Questo testo non contiene i tag HTML della pagina originale.
+```
+
+Le prime righe sono l'intestazione aggiunta dal programma; dopo `---` comincia
+il testo estratto dalla pagina.
 
 ### `json/`: metadati selezionati
 
@@ -329,12 +392,63 @@ con gli highlight. I campi più utili sono:
 - `downloaded_path`: campo storico eventualmente già presente nei dati locali;
   il codice attuale non lo legge e non lo aggiorna.
 
+Esempio ridotto di `raindrop_articles/articles.json`. Le parentesi quadre
+indicano che il file contiene un array, quindi molti oggetti articolo:
+
+```json
+[
+  {
+    "_id": 1738177662,
+    "type": "article",
+    "title": "Titolo articolo",
+    "link": "https://example.com/articolo",
+    "domain": "example.com",
+    "excerpt": "Breve descrizione dell'articolo",
+    "note": "Nota personale",
+    "created": "2026-05-30T08:46:10.105Z",
+    "lastUpdate": "2026-05-30T08:48:55.380Z",
+    "tags": ["intelligenza-artificiale", "ricerca"],
+    "collectionId": -1,
+    "highlights": [
+      {
+        "_id": "6a1aa4042a78c8ebadcc2078",
+        "text": "Passaggio evidenziato nell'articolo",
+        "note": "Perché questo passaggio è importante",
+        "color": "yellow",
+        "created": "2026-05-30T08:47:00.287Z",
+        "lastUpdate": "2026-05-30T08:48:55.380Z"
+      }
+    ]
+  }
+]
+```
+
 Se il catalogo esiste, gli export successivi lo riutilizzano. `--refresh` forza
 prima il nuovo download del catalogo dall'API.
 
 `highlights.json`, quando presente, conserva separatamente la risposta completa
 dell'endpoint Raindrop degli highlight; `articles.json` ne contiene invece la
 copia già associata al rispettivo articolo.
+
+Esempio ridotto di `raindrop_articles/highlights.json`:
+
+```json
+[
+  {
+    "_id": "6a1aa4042a78c8ebadcc2078",
+    "raindropRef": 1738177662,
+    "text": "Passaggio evidenziato nell'articolo",
+    "note": "Perché questo passaggio è importante",
+    "color": "yellow",
+    "created": "2026-05-30T08:47:00.287Z",
+    "lastUpdate": "2026-05-30T08:48:55.380Z",
+    "tags": ["dato-importante"]
+  }
+]
+```
+
+In questo esempio `raindropRef: 1738177662` collega l'highlight all'articolo
+che in `articles.json` possiede `_id: 1738177662`.
 
 ### `articles.csv`: indice storico
 
@@ -353,11 +467,44 @@ Il file locale osservato ha queste colonne:
 | `downloaded_path` | Percorso HTML scaricato nel vecchio flusso. |
 | `download_error` | Eventuale errore di download nel vecchio flusso. |
 
+Esempio di `raindrop_articles/articles.csv` con intestazione e due record:
+
+```csv
+id,title,link,domain,created,tags,collection_id,cache_status,downloaded_path,download_error
+1738177662,"Titolo articolo",https://example.com/articolo,example.com,2026-05-30T08:46:10.105Z,"intelligenza-artificiale, ricerca",-1,,raindrop_articles/files/Titolo articolo.html,
+1737729848,"Articolo non scaricato",https://example.org/notizia,example.org,2026-05-29T21:30:25.367Z,notizie,-1,,,HTTP 403
+```
+
+Nel primo record `downloaded_path` contiene il vecchio percorso HTML e
+`download_error` è vuoto. Nel secondo record non è stato registrato un file
+scaricato e `download_error` contiene `HTTP 403`. Questo è soltanto un esempio
+del formato storico: il programma attuale non produce queste righe.
+
 Importante: nel codice Python attuale non c'è alcun lettore o writer di
 `articles.csv`. Quindi oggi questo CSV **non** serve a decidere cosa è già stato
 scaricato e non viene aggiornato dagli export. È un residuo/indice di una
 versione precedente del flusso. Il tracciamento incrementale corrente avviene
 esclusivamente tramite `manifest.json`.
+
+## Esempi dei dataset JSONL derivati
+
+`python3 extraction.py all` genera un file `*_articles.jsonl` in cui ogni riga
+è un oggetto JSON completo e indipendente. Esempio di una singola riga:
+
+```jsonl
+{"id":1738177662,"title":"Titolo articolo","url":"https://example.com/articolo","label":"all","tag":"all","tags":["intelligenza-artificiale","ricerca"],"created":"2026-05-30T08:46:10.105Z","lastUpdate":"2026-05-30T08:48:55.380Z","domain":"example.com","excerpt":"Breve descrizione","note":"Nota personale","text":"Titolo articolo\nhttps://example.com/articolo\nCreated: 2026-05-30T08:46:10.105Z\n\n---\nTesto estratto...","highlights":[]}
+```
+
+Il corrispondente `*_chunks.jsonl` contiene più righe per lo stesso articolo.
+Ogni riga rappresenta un segmento del testo:
+
+```jsonl
+{"article_id":1738177662,"chunk_id":"1738177662-0000","chunk_index":0,"title":"Titolo articolo","url":"https://example.com/articolo","label":"all","tag":"all","tags":["intelligenza-artificiale","ricerca"],"created":"2026-05-30T08:46:10.105Z","text":"Primo segmento del testo dell'articolo...","highlights":[]}
+{"article_id":1738177662,"chunk_id":"1738177662-0001","chunk_index":1,"title":"Titolo articolo","url":"https://example.com/articolo","label":"all","tag":"all","tags":["intelligenza-artificiale","ricerca"],"created":"2026-05-30T08:46:10.105Z","text":"Secondo segmento, con una parte sovrapposta al precedente...","highlights":[]}
+```
+
+`article_id` collega tutti i chunk all'articolo originale; `chunk_index` indica
+l'ordine e `chunk_id` combina ID articolo e numero progressivo del chunk.
 
 ## `manifest.json`: resume e aggiornamenti incrementali
 

@@ -16,22 +16,152 @@ Il progetto gestisce due fasi collegate:
    tutti gli articoli, tag o dominio, pronti per pandas, Hugging Face Datasets,
    RAG, embeddings e training.
 
-L'archivio creato da `raindrop.py` è incrementale e può essere aggiornato nel
-tempo. A ogni nuova esecuzione il programma confronta il catalogo corrente con
-`manifest.json`: salta gli articoli invariati, scarica quelli nuovi o modificati
-e ricrea eventuali file mancanti. In questo modo non è necessario riscaricare
-l'intera raccolta dopo ogni modifica fatta su Raindrop.
+## Flusso completo: cosa fanno i tre comandi
 
-Il flusso normale per aggiornare il dataset è:
+I tre comandi non fanno la stessa cosa. Ogni comando legge file diversi e
+produce un risultato diverso.
+
+### 1. Aggiornare solo il catalogo JSON, senza scaricare gli articoli
 
 ```bash
-# 1. Aggiorna articoli, tag e highlight dall'account Raindrop
+python3 raindrop.py update-articles
+```
+
+**Questo comando non scarica il contenuto degli articoli.** Aggiorna soltanto
+la fotografia locale dei metadati presenti nell'account Raindrop.
+
+Questo comando usa `RAINDROP_TOKEN` dal file `.env` per interrogare l'account
+Raindrop.io. Scarica tramite API l'elenco aggiornato degli articoli, dei tag e
+degli highlight e sostituisce questi due cataloghi locali:
+
+```text
+raindrop_articles/
+├── articles.json
+└── highlights.json
+```
+
+Non apre gli URL degli articoli, non scarica le pagine, non crea HTML o TXT e
+non modifica `manifest.json`. Al termine sappiamo quali articoli esistono
+nell'account e quali metadati possiedono, ma non abbiamo ancora scaricato il
+loro contenuto.
+
+### 2. Scaricare il contenuto degli articoli
+
+```bash
+python3 raindrop.py
+```
+
+Se il catalogo locale esiste, questo comando non lo aggiorna automaticamente
+dall'account: legge quello già presente in:
+
+```text
+raindrop_articles/articles.json
+```
+
+Se `articles.json` non esiste, lo script deve prima recuperarlo da Raindrop e
+lo crea insieme a `highlights.json`. Per chiedere esplicitamente un catalogo
+aggiornato, senza dipendere dalla presenza del file locale, usare `--refresh`.
+
+Per ogni articolo del catalogo controlla `manifest.json` e i file locali, quindi
+crea o aggiorna:
+
+```text
+raindrop_articles/
+├── files/<articolo>.html
+├── text/<articolo>.txt
+├── json/<articolo>.json   # solo con tag o highlight
+└── manifest.json
+```
+
+Con il comportamento attuale:
+
+- un articolo nuovo, che non possiede ancora i file locali, viene scaricato;
+- un articolo con HTML o TXT mancante viene riscaricato;
+- un JSON mancante provoca il download solo quando l'articolo ha tag o
+  highlight e quindi quel JSON è necessario;
+- un articolo con file presenti e signature identiche viene saltato;
+- un articolo modificato nel catalogo, ma con tutti i file già presenti, può
+  essere adottato come esistente senza che HTML, TXT e JSON vengano riscritti.
+
+L'ultimo punto è un limite del codice attuale: non è ancora un aggiornamento
+incrementale completo degli articoli modificati. Per forzare il download e la
+riscrittura di tutti gli articoli selezionati si usa:
+
+```
+python3 raindrop.py --cookies
+```
+
+--cookie al singolare produce un errore.
+
+Con --cookies il programma:
+
+carica tutti i cookie da cookie/;
+controlla manifest.json;
+
+verifica la presenza di HTML, TXT e dell’eventuale JSON;
+
+
+salta gli articoli già completi;
+
+scarica solamente articoli nuovi o con file mancanti. metti questi  flussi
+
+
+
+
+```bash
+python3 raindrop.py --force
+```
+
+Per aggiornare prima il catalogo remoto e poi eseguire l'export con un solo
+comando si usa:
+
+```bash
+python3 raindrop.py --refresh
+```
+
+Per aggiornare il catalogo e forzare anche la riscrittura di tutti i contenuti:
+
+```bash
+python3 raindrop.py --refresh --force
+```
+
+### 3. Costruire il dataset JSONL derivato
+
+```bash
+python3 extraction.py all
+```
+
+Questo comando non accede a Raindrop.io e non scarica pagine web. Legge:
+
+```text
+raindrop_articles/articles.json
+raindrop_articles/manifest.json
+raindrop_articles/text/*.txt
+```
+
+e rigenera nella directory predefinita `estrazione/` due file il cui nome
+contiene la data di esecuzione:
+
+```text
+estrazione/
+├── AAAA-MM-GG_all_articles.jsonl
+└── AAAA-MM-GG_all_chunks.jsonl
+```
+
+Il primo contiene una riga JSON per articolo completo. Il secondo divide il
+testo degli stessi articoli in più chunk, utili per RAG ed embeddings. Gli
+articoli senza un file TXT locale vengono saltati e segnalati nel terminale.
+
+Quindi il flusso completo normale è:
+
+```bash
+# 1. Aggiorna solo i cataloghi JSON; non scarica il contenuto degli articoli
 python3 raindrop.py update-articles
 
-# 2. Aggiorna in modo incrementale HTML, testo, JSON e manifest locali
+# 2. Scarica i nuovi articoli e recupera i file locali mancanti
 python3 raindrop.py
 
-# 3. Rigenera, se necessario, il dataset JSONL dai dati locali aggiornati
+# 3. Rigenera i JSONL usando catalogo, manifest e TXT locali
 python3 extraction.py all
 ```
 
@@ -40,6 +170,11 @@ python3 extraction.py all
 ```bash
 python3 raindrop.py update-articles
 ```
+
+Il termine `articles` nel nome del comando indica le **schede degli articoli
+restituite dall'API**, non le pagine HTML. Il comando aggiorna il catalogo
+locale dei metadati; il download del contenuto viene eseguito soltanto dal
+successivo `python3 raindrop.py`.
 
 Il comando legge dalla root del progetto il token configurato in `.env`:
 
@@ -163,10 +298,24 @@ RAINDROP_LOG_MAX_LINES=3000
 Quando il file giornaliero raggiunge questo limite, lo script continua su un
 nuovo file con suffisso progressivo. I log precedenti non vengono troncati.
 
-La directory si configura con:
+La directory dei log si configura nel file `.env` che si trova nella root del
+progetto, cioè nella stessa directory di `raindrop.py`:
 
 ```bash
 RAINDROP_LOG_DIR=logs
+```
+
+Con questo valore, se il progetto si trova in
+`/home/flavio/Documents/code/dataset`, i log vengono scritti in:
+
+```text
+/home/flavio/Documents/code/dataset/logs/
+```
+
+Il valore può essere sostituito con un altro percorso, per esempio:
+
+```bash
+RAINDROP_LOG_DIR=output/logs_raindrop
 ```
 
 Esempio di evento:
@@ -341,28 +490,211 @@ Con `both`, lo script prova prima la copia permanente di Raindrop e poi il link 
 
 ## Articoli Con Login: Cookies
 
-Per siti che richiedono autenticazione, non mettere user/password nello script.
-Esporta invece i cookie dal browser in formato Netscape `cookies.txt`.
+I cookie servono per scaricare dal **sito originale** un articolo visibile solo
+dopo il login, per esempio dietro un abbonamento. Non sostituiscono
+`RAINDROP_TOKEN`: il token autorizza l'accesso all'account Raindrop, mentre il
+file cookie trasferisce allo script la sessione già aperta sul sito
+dell'articolo.
 
-Esempio con il file:
+Non inserire username e password nel programma. Accedi normalmente con Firefox
+e poi esporta soltanto i cookie necessari nel formato Netscape `cookies.txt`.
+
+### 1. Installare l'estensione Firefox
+
+Installare dal sito ufficiale Mozilla l'estensione
+[Get cookies.txt LOCALLY](https://addons.mozilla.org/firefox/addon/get-cookies-txt-locally/).
+L'estensione supporta sia Netscape sia JSON: per questo programma bisogna
+scegliere **Netscape**, non JSON.
+
+Dopo l'installazione, se Firefox lo richiede, concedere all'estensione il
+permesso di leggere i cookie del sito corrente. Un'estensione che può leggere i
+cookie ha accesso a dati sensibili: installarla soltanto dalla pagina ufficiale
+Mozilla e rimuoverla o disabilitarla se non serve più.
+
+### 2. Accedere al sito da Firefox
+
+1. Aprire Firefox con il profilo che si vuole usare.
+2. Visitare il sito, per esempio `https://www.repubblica.it`.
+3. Eseguire il login.
+4. Aprire un articolo riservato e verificare che il testo completo sia
+   effettivamente leggibile nel browser.
+
+Se nel browser compare ancora il login o il paywall, anche il cookie esportato
+non permetterà allo script di leggere l'articolo.
+
+### 3. Esportare il cookie del dominio
+
+1. Restare su una scheda del dominio interessato.
+2. Premere l'icona di **Get cookies.txt LOCALLY** nella barra di Firefox.
+3. Selezionare i cookie della scheda o del dominio corrente, evitando di
+   esportare inutilmente i cookie di tutti i siti.
+4. Selezionare il formato **Netscape**.
+5. Usare il pulsante di download/esportazione dell'estensione.
+
+Il file deve iniziare con una riga simile a questa e contenere poi una riga per
+cookie, con campi separati da tabulazioni:
 
 ```text
-repubblica.it_cookies.txt
+# Netscape HTTP Cookie File
+.repubblica.it	TRUE	/	TRUE	1780000000	nome_cookie	valore_cookie
 ```
 
-Uso:
+Non modificare manualmente tabulazioni, valori o date di scadenza.
+
+### 4. Salvare tutti i cookie nella directory `cookie/`
+
+Lo script legge i cookie esclusivamente da questa directory della root del
+progetto:
+
+```text
+/home/flavio/Documents/code/dataset/cookie/
+```
+
+Creare un file separato per ogni sito. Il nome è libero, purché termini in
+`.txt`; usare il dominio rende il contenuto riconoscibile:
+
+```text
+dataset/
+├── raindrop.py
+├── .env
+└── cookie/
+    ├── repubblica.it_cookies.txt
+    └── medium.com_cookies.txt
+```
+
+Non lasciare i file nella root e non passarne il percorso nel comando. Il nuovo
+`--cookies` è un interruttore senza valore:
 
 ```bash
-python3 raindrop.py --cookies repubblica.it_cookies.txt
+python3 raindrop.py --cookies
 ```
 
-Oppure per scaricare/cache gli articoli di un tag che richiedono cookie:
+L'opzione corretta è `--cookies`, al plurale. `--cookie` al singolare non è
+riconosciuta e produce un errore.
+
+Con `--cookies` il programma:
+
+1. apre `cookie/` nella root del progetto;
+2. cerca tutti i file `*.txt`;
+3. verifica che ogni file sia in formato Netscape;
+4. unisce i cookie in un solo cookie jar;
+5. carica automaticamente i cookie corretti per ciascun dominio;
+6. controlla `manifest.json`;
+7. verifica la presenza dei file HTML, TXT e dell'eventuale JSON richiesto per
+   ogni articolo;
+8. salta gli articoli che risultano già completi;
+9. scarica gli articoli nuovi o quelli a cui manca almeno un file richiesto.
+
+Quindi `--cookies` abilita l'autenticazione, ma non forza un nuovo download
+degli articoli già completi.
+
+Nell'esempio precedente una sola esecuzione carica sia Repubblica sia Medium:
 
 ```bash
-python3 raindrop.py export-tag ukraine-war --cookies repubblica.it_cookies.txt
+python3 raindrop.py --source original --cookies
 ```
 
-I cookie sono credenziali temporanee: non committarli e rigenerali quando la sessione scade.
+I cookie di Repubblica vengono usati per `repubblica.it`, quelli di Medium per
+`medium.com`; non è più necessario eseguire un comando separato per ogni sito.
+
+Senza `--cookies`, la directory non viene letta e nessun cookie viene caricato.
+Se `--cookies` è presente ma `cookie/` non esiste, non contiene `.txt` o include
+un file non valido, il programma termina mostrando un errore invece di
+continuare senza autenticazione.
+
+Per riscaricare tutti gli articoli selezionati e richiedere le pagine ai siti
+originali usando i cookie bisogna aggiungere sia `--source original` sia
+`--force`:
+
+```bash
+python3 raindrop.py --source original --cookies --force
+```
+
+Per forzare soltanto un dominio:
+
+```bash
+python3 raindrop.py export-domain medium.com \
+  --output raindrop_articles \
+  --source original \
+  --cookies \
+  --force
+```
+
+### 5. Verificare formato e caricamento
+
+Dalla root del progetto eseguire:
+
+```bash
+python3 -c "from utility import PROJECT_ROOT, load_cookie_directory; load_cookie_directory(PROJECT_ROOT / 'cookie')"
+```
+
+Output atteso, dove `N` è il numero di cookie caricati:
+
+```text
+Loaded N cookies from 2 files in /home/flavio/Documents/code/dataset/cookie
+```
+
+Se compare `Expected Netscape cookies.txt format`, riesportare il file
+scegliendo Netscape invece di JSON. Non stampare nel terminale il contenuto
+completo del file, perché include i valori della sessione.
+
+### 6. Provare il download di un solo articolo
+
+Per verificare i cookie senza avviare un export grande:
+
+```bash
+python3 raindrop.py export-domain repubblica.it \
+  --limit 1 \
+  --source original \
+  --cookies
+```
+
+`--source original` è importante per il test: ordina allo script di richiedere
+la pagina al sito usando i cookie, invece di usare la copia cache di Raindrop.
+
+La stessa opzione funziona per export generale, tag e dominio:
+
+```bash
+python3 raindrop.py --source original --cookies
+
+python3 raindrop.py export-tag ukraine-war \
+  --source original \
+  --cookies
+```
+
+In tutti i casi vengono caricati tutti i `.txt` di `cookie/`; il cookie jar
+decide quali cookie inviare a ogni dominio.
+
+### 7. Quando esportare nuovamente i cookie
+
+Ripetere login ed esportazione quando:
+
+- lo script riceve di nuovo la pagina di login o il paywall;
+- il file TXT contiene soltanto una pagina di accesso;
+- si è fatto logout da Firefox;
+- il sito ha invalidato o fatto scadere la sessione;
+- il download restituisce HTTP 401 o 403.
+
+I cookie non risolvono tutti i blocchi: alcuni siti richiedono JavaScript,
+header aggiuntivi o controlli anti-bot che una semplice richiesta HTTP non può
+riprodurre.
+
+### 8. Sicurezza
+
+Un file `cookies.txt` è una credenziale temporanea e deve essere trattato come
+una password:
+
+- non inviarlo in chat, email, issue o ticket;
+- non copiarne il contenuto nei log;
+- non aggiungerlo a Git;
+- cancellarlo e riesportarlo se si sospetta che sia stato condiviso.
+
+Il `.gitignore` del progetto esclude l'intera directory `cookie/`, oltre ai
+pattern `cookies.txt` e `*cookies.txt`, ma è
+comunque opportuno controllare `git status` prima di ogni commit.
+
+La guida separata [export_cookie.md](export_cookie.md) contiene ulteriori
+esempi per test limitati e dataset derivati.
 
 ## Estrazione Dataset JSONL
 
@@ -449,28 +781,17 @@ Con questo comando breve lo script usa le convenzioni:
 Local export directory: raindrop_test_export
 ```
 
-Se esiste un file cookie con nome convenzionale, viene usato automaticamente:
+Senza `--cookies` non viene caricato alcun cookie. Con `--cookies`, lo script
+carica tutti i file Netscape `*.txt` presenti in `cookie/`, compresi per esempio
+`cookie/repubblica.it_cookies.txt` e `cookie/medium.com_cookies.txt`.
 
-```text
-<dominio>_cookies.txt
-```
-
-Quindi per `repubblica.it`:
-
-```text
-repubblica.it_cookies.txt
-```
-
-Se il file non esiste, lo script scarica senza cookie. Puoi sempre indicarne
-uno esplicitamente con `--cookies`.
-
-Esempio esplicito, utile se vuoi cambiare percorsi o usare un nome cookie diverso:
+Esempio con autenticazione:
 
 ```bash
 python3 raindrop.py export-domain repubblica.it \
   --output raindrop_test_export \
   --source original \
-  --cookies repubblica.it_cookies.txt
+  --cookies
 ```
 
 Questo crea/aggiorna:
@@ -498,7 +819,7 @@ python3 raindrop.py export-domain repubblica.it \
   --limit 1 \
   --output raindrop_test_export \
   --source original \
-  --cookies repubblica.it_cookies.txt
+  --cookies
 ```
 
 ## File JSON

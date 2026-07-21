@@ -41,7 +41,7 @@ from utility import (
     content_to_text,
     download_delay_seconds,
     elapsed_ms_since,
-    load_cookie_jar,
+    load_cookie_directory,
     load_manifest,
     request_retries,
     request_timeout_seconds,
@@ -56,6 +56,7 @@ from utility import (
 API_BASE = "https://api.raindrop.io/rest/v1"
 DEFAULT_OUTPUT_DIR = "raindrop_articles"
 DEFAULT_DOMAIN_OUTPUT_DIR = "raindrop_test_export"
+DEFAULT_COOKIE_DIR = PROJECT_ROOT / "cookie"
 TOKEN_ENV_NAMES = ("RAINDROP_TOKEN", "RAINDROP_ACCESS_TOKEN")
 USER_AGENT = "raindrop-article-exporter/2.0"
 
@@ -75,26 +76,12 @@ def get_token() -> str:
     raise RaindropError(f"Missing token. Add {accepted_names} to .env")
 
 
-def default_cookie_path_for_domain(domain: str) -> str:
-    return f"{domain.removeprefix('www.')}_cookies.txt"
-
-
 def output_dir_for_args(args: argparse.Namespace) -> Path:
     if args.output:
         return Path(args.output)
     if args.command == "export-domain":
         return Path(DEFAULT_DOMAIN_OUTPUT_DIR)
     return Path(DEFAULT_OUTPUT_DIR)
-
-
-def cookie_path_for_args(args: argparse.Namespace) -> str:
-    if args.cookies:
-        return args.cookies
-    if args.command == "export-domain" and args.selector:
-        cookie_path = default_cookie_path_for_domain(args.selector)
-        if Path(cookie_path).exists():
-            return cookie_path
-    return ""
 
 
 def source_for_args(args: argparse.Namespace) -> str:
@@ -899,10 +886,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--cookies",
-        default="",
+        action="store_true",
         help=(
-            "Optional Netscape cookies.txt file for authenticated article downloads. "
-            "For export-domain, <domain>_cookies.txt is used automatically when present."
+            "Load all Netscape *.txt cookie files from the project's cookie/ directory."
         ),
     )
     parser.add_argument(
@@ -976,14 +962,12 @@ def main() -> int:
     if args.user_agent:
         os.environ["RAINDROP_USER_AGENT"] = args.user_agent
     token = get_token()
-    cookie_path = cookie_path_for_args(args)
-    if cookie_path:
-        print(f"Cookies file: {cookie_path}")
-    cookie_jar = load_cookie_jar(cookie_path)
 
     if args.command == "update-articles":
         update_articles_cache(args, token)
         return 0
+
+    cookie_jar = load_cookie_directory(DEFAULT_COOKIE_DIR) if args.cookies else None
 
     if args.command == "export-tag":
         return export_tag(args, token, cookie_jar)

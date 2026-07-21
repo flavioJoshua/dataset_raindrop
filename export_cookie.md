@@ -1,165 +1,139 @@
-# Export Cookie Per Articoli Autenticati
+# Cookie per articoli autenticati
 
-Questa procedura serve per scaricare articoli che richiedono login usando una
-sessione browser gia autenticata, senza inserire user e password nello script.
+Questa procedura permette a `raindrop.py` di usare le sessioni già aperte in
+Firefox per scaricare articoli che richiedono login. I cookie sono credenziali
+temporanee: trattarli come password.
 
-I cookie sono credenziali temporanee: trattali come una password.
+## 1. Esportare da Firefox
 
-## 1. Login Nel Browser
+1. Installare dal sito ufficiale Mozilla
+   [Get cookies.txt LOCALLY](https://addons.mozilla.org/firefox/addon/get-cookies-txt-locally/).
+2. Accedere al primo sito, per esempio `repubblica.it`, e verificare che un
+   articolo riservato sia leggibile nel browser.
+3. Aprire l'estensione dalla scheda del sito ed esportare i cookie del dominio
+   in formato **Netscape**, non JSON.
+4. Ripetere l'operazione per ogni altro sito autenticato, per esempio
+   `medium.com`.
 
-1. Apri Firefox.
-2. Vai su `https://www.repubblica.it`.
-3. Fai login con il tuo account.
-4. Apri un articolo che richiede autenticazione e verifica che sia leggibile nel browser.
-
-Firefox e consigliato perche l'esportazione in formato `cookies.txt` tende a
-essere piu semplice. Chrome va bene, ma spesso richiede piu attenzione con
-profili, permessi ed estensioni.
-
-## 2. Installa Un Exporter Cookies.txt
-
-Installa una estensione che esporta cookie in formato Netscape `cookies.txt`.
-
-Parole chiave da cercare:
-
-```text
-Get cookies.txt LOCALLY
-cookies.txt
-Netscape cookies.txt
-```
-
-L'estensione giusta deve permettere di esportare/scaricare un file simile a:
+Un file Netscape ha una struttura simile:
 
 ```text
 # Netscape HTTP Cookie File
 .repubblica.it	TRUE	/	TRUE	1780000000	nome_cookie	valore_cookie
 ```
 
-Non serve una estensione che abilita/disabilita i cookie: serve proprio una
-funzione di export/download.
+## 2. Directory obbligatoria
 
-## 3. Esporta I Cookie
-
-1. Resta su una pagina di `www.repubblica.it`.
-2. Apri l'estensione.
-3. Esporta i cookie del sito corrente o del dominio `repubblica.it`.
-4. Salva il file in questa cartella:
+Salvare tutti i file esclusivamente nella directory `cookie/` della root del
+progetto:
 
 ```text
-/home/flavio/Documents/code/dataset/
+dataset/
+├── raindrop.py
+├── .env
+└── cookie/
+    ├── repubblica.it_cookies.txt
+    └── medium.com_cookies.txt
 ```
 
-Nome consigliato:
+Il nome può essere scelto liberamente, purché termini in `.txt`. Usare il
+dominio nel nome rende chiaro a quale sessione appartiene.
+
+I cookie lasciati nella root o in altre directory non vengono letti.
+
+## 3. Come funziona `--cookies`
+
+`--cookies` è un interruttore e non accetta un percorso:
+
+```bash
+python3 raindrop.py --cookies
+```
+
+Quando l'opzione è presente, lo script:
+
+1. apre `cookie/`;
+2. carica tutti i file `*.txt` in formato Netscape;
+3. unisce i cookie in un solo cookie jar;
+4. invia a ogni sito soltanto i cookie validi per il suo dominio e percorso.
+
+Nell'esempio, la stessa esecuzione usa i cookie di Repubblica per
+`repubblica.it` e quelli di Medium per `medium.com`.
+
+Senza `--cookies`, nessun file della directory viene caricato. Se l'opzione è
+presente ma la directory manca, è vuota o contiene un `.txt` non valido, il
+programma termina con un errore.
+
+`--cookies` non implica `--force`: abilita i cookie, poi mantiene il normale
+controllo del manifest. Per riscaricare tutti gli articoli dal sito originale
+usando i cookie:
+
+```bash
+python3 raindrop.py --source original --cookies --force
+```
+
+## 4. Verificare tutti i file
+
+Dalla root del progetto:
+
+```bash
+python3 -c "from utility import PROJECT_ROOT, load_cookie_directory; load_cookie_directory(PROJECT_ROOT / 'cookie')"
+```
+
+Output di esempio:
 
 ```text
-repubblica.it_cookies.txt
+Loaded 12 cookies from cookie/repubblica.it_cookies.txt
+Loaded 5 cookies from cookie/medium.com_cookies.txt
+Loaded 17 cookies from 2 files in /home/flavio/Documents/code/dataset/cookie
 ```
 
-## 4. Verifica Il File
+Non stampare il contenuto dei file nel terminale o nei log.
 
-Dal progetto:
+## 5. Usare tutti i cookie
+
+Export generale dal sito originale:
 
 ```bash
-cd /home/flavio/Documents/code/dataset
-test -f repubblica.it_cookies.txt
+python3 raindrop.py --source original --cookies
 ```
 
-Verifica che lo script riesca a caricarlo senza stampare i valori dei cookie:
-
-```bash
-python3 -c "import raindrop; raindrop.load_cookie_jar('repubblica.it_cookies.txt')"
-```
-
-Output atteso:
-
-```text
-Loaded N cookies from repubblica.it_cookies.txt
-```
-
-Se vedi un errore sul formato, riesporta il file assicurandoti che sia in
-formato Netscape `cookies.txt`.
-
-## 5. Usa I Cookie Con Lo Script
-
-Per esportare tutti gli articoli usando i cookie quando scarica le pagine:
-
-```bash
-python3 raindrop.py --cookies repubblica.it_cookies.txt
-```
-
-Per forzare il download dal sito originale, invece della cache Raindrop:
-
-```bash
-python3 raindrop.py --source original --cookies repubblica.it_cookies.txt
-```
-
-Per scaricare/cache gli articoli di un tag usando i cookie:
+Export limitato a un tag:
 
 ```bash
 python3 raindrop.py export-tag ukraine-war \
   --source original \
-  --cookies repubblica.it_cookies.txt
+  --cookies
 ```
 
-Poi crea il dataset JSONL dai file locali:
+Test di un dominio su un solo articolo:
 
 ```bash
-python3 extraction.py tag ukraine-war --output estrazione_cookie_test
-```
-
-Test limitato:
-
-```bash
-python3 raindrop.py export-tag ukraine-war \
+python3 raindrop.py export-domain repubblica.it \
   --limit 1 \
   --source original \
-  --cookies repubblica.it_cookies.txt
-
-python3 extraction.py tag ukraine-war \
-  --limit 1 \
-  --output estrazione_cookie_test
+  --cookies
 ```
 
-## 6. Quando Rigenerare I Cookie
+Anche nell'export di un singolo dominio vengono caricati tutti i file di
+`cookie/`; il cookie jar utilizza però soltanto quelli compatibili con gli URL
+richiesti.
 
-Rigenera il file cookie quando:
+## 6. Quando rigenerarli
 
-- lo script scarica pagine di login invece degli articoli;
-- il testo esportato sembra incompleto;
-- hai fatto logout dal browser;
-- sono passati molti giorni;
-- il sito ha invalidato la sessione.
+Rieseguire login ed esportazione quando:
 
-Procedura: fai di nuovo login nel browser ed esporta un nuovo `cookies.txt`.
+- lo script scarica una pagina di login o paywall;
+- il testo esportato è incompleto;
+- si è fatto logout dal browser;
+- il sito ha invalidato la sessione;
+- il download restituisce HTTP 401 o 403.
+
+I cookie non superano necessariamente pagine che dipendono da JavaScript,
+header speciali, geolocalizzazione o controlli anti-bot.
 
 ## 7. Sicurezza
 
-Non committare mai file cookie.
-
-Il progetto ignora gia questi file:
-
-```gitignore
-cookies.txt
-*cookies.txt
-```
-
-Non inviare il file cookie in chat, email o issue pubbliche. Chi possiede quel
-file puo potenzialmente usare la tua sessione finche resta valida.
-
-Per cancellare i cookie esportati:
-
-```bash
-rm repubblica.it_cookies.txt
-```
-
-## 8. Limiti
-
-I cookie non garantiscono sempre accesso completo:
-
-- alcuni siti caricano contenuto via JavaScript;
-- alcuni sistemi anti-bot possono bloccare richieste non fatte dal browser;
-- alcuni contenuti possono dipendere da header, geolocalizzazione o stato account;
-- sessioni scadute producono pagine login o paywall.
-
-Usa questa procedura rispettando i termini del sito e i diritti d'uso dei
-contenuti scaricati.
+La directory `cookie/` è esclusa da Git tramite `.gitignore`. Controllare
+comunque `git status` prima di ogni commit. Non condividere mai questi file in
+chat, email, issue o ticket: chi li possiede può utilizzare la sessione finché
+rimane valida.
